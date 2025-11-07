@@ -2,37 +2,55 @@
 
 namespace uneven_planner
 {
-    void KinoAstar::init(ros::NodeHandle& nh)
+    void KinoAstar::init(rclcpp::Node::SharedPtr node)
     {
-        nh.param("kino_astar/yaw_resolution", yaw_resolution, 3.15);
-        nh.param("kino_astar/lambda_heu", lambda_heu, 1.0);
-        nh.param("kino_astar/weight_r2", weight_r2, 1.0);
-        nh.param("kino_astar/weight_so2", weight_so2, 1.0);
-        nh.param("kino_astar/weight_v_change", weight_v_change, 0.0);
-        nh.param("kino_astar/weight_delta_change", weight_delta_change, 0.0);
-        nh.param("kino_astar/weight_sigma", weight_sigma, 0.0);
-        nh.param("kino_astar/time_interval", time_interval, 1.0);
-        nh.param("kino_astar/collision_interval", collision_interval, 1.0);
-        nh.param("kino_astar/oneshot_range", oneshot_range, 1.0);
-        nh.param("kino_astar/wheel_base", wheel_base, 1.0);
-        nh.param("kino_astar/max_steer", max_steer, 1.0);
-        nh.param("kino_astar/max_vel", max_vel, 1.0);
-        nh.param("kino_astar/in_test", in_test, false);
+        node_ = node;
+        node->declare_parameter("kino_astar/yaw_resolution", 3.15);
+        node->declare_parameter("kino_astar/lambda_heu", 1.0);
+        node->declare_parameter("kino_astar/weight_r2", 1.0);
+        node->declare_parameter("kino_astar/weight_so2", 1.0);
+        node->declare_parameter("kino_astar/weight_v_change", 0.0);
+        node->declare_parameter("kino_astar/weight_delta_change", 0.0);
+        node->declare_parameter("kino_astar/weight_sigma", 0.0);
+        node->declare_parameter("kino_astar/time_interval", 1.0);
+        node->declare_parameter("kino_astar/collision_interval", 1.0);
+        node->declare_parameter("kino_astar/oneshot_range", 1.0);
+        node->declare_parameter("kino_astar/wheel_base", 1.0);
+        node->declare_parameter("kino_astar/max_steer", 1.0);
+        node->declare_parameter("kino_astar/max_vel", 1.0);
+        node->declare_parameter("kino_astar/in_test", false);
 
-        whole_body_pub = nh.advertise<visualization_msgs::Marker>("/kino_astar/wholebody_path", 0);
-        front_end_pub = nh.advertise<nav_msgs::Path>("/kino_astar/path", 0);
+        yaw_resolution = node->get_parameter("kino_astar/yaw_resolution").as_double();
+        lambda_heu = node->get_parameter("kino_astar/lambda_heu").as_double();
+        weight_r2 = node->get_parameter("kino_astar/weight_r2").as_double();
+        weight_so2 = node->get_parameter("kino_astar/weight_so2").as_double();
+        weight_v_change = node->get_parameter("kino_astar/weight_v_change").as_double();
+        weight_delta_change = node->get_parameter("kino_astar/weight_delta_change").as_double();
+        weight_sigma = node->get_parameter("kino_astar/weight_sigma").as_double();
+        time_interval = node->get_parameter("kino_astar/time_interval").as_double();
+        collision_interval = node->get_parameter("kino_astar/collision_interval").as_double();
+        oneshot_range = node->get_parameter("kino_astar/oneshot_range").as_double();
+        wheel_base = node->get_parameter("kino_astar/wheel_base").as_double();
+        max_steer = node->get_parameter("kino_astar/max_steer").as_double();
+        max_vel = node->get_parameter("kino_astar/max_vel").as_double();
+        in_test = node->get_parameter("kino_astar/in_test").as_bool();
+
+        whole_body_pub = node->create_publisher<visualization_msgs::msg::Marker>("/kino_astar/wholebody_path", 10);
+        front_end_pub = node->create_publisher<nav_msgs::msg::Path>("/kino_astar/path", 10);
         if (in_test)
         {
-            wps_sub = nh.subscribe<geometry_msgs::PoseStamped>("/move_base_simple/goal", 1, &KinoAstar::rcvWpsCallBack, this);
-            odom_sub = nh.subscribe<nav_msgs::Odometry>("odom", 1, &KinoAstar::rcvOdomCallBack, this);
-            expanded_pub = nh.advertise<sensor_msgs::PointCloud2>("/kino_astar/expanded_points", 0);
+            wps_sub = node->create_subscription<geometry_msgs::msg::PoseStamped>("/move_base_simple/goal", 10, 
+                std::bind(&KinoAstar::rcvWpsCallBack, this, std::placeholders::_1));
+            odom_sub = node->create_subscription<nav_msgs::msg::Odometry>("odom", 10,
+                std::bind(&KinoAstar::rcvOdomCallBack, this, std::placeholders::_1));
+            expanded_pub = node->create_publisher<sensor_msgs::msg::PointCloud2>("/kino_astar/expanded_points", 10);
         }
 
         yaw_resolution_inv = 1.0 / yaw_resolution;
 
         shot_finder = std::make_shared<ompl::base::DubinsStateSpace>(wheel_base / tan(max_steer));
 
-        model.type = visualization_msgs::Marker::LINE_LIST;
+        model.type = visualization_msgs::msg::Marker::LINE_LIST;
         model.header.frame_id = "world";
         model.id = 10;
         model.pose.orientation.w = 1.0;
@@ -42,17 +60,17 @@ namespace uneven_planner
         model.scale.x = 0.1;
     }
 
-    void KinoAstar::rcvWpsCallBack(const geometry_msgs::PoseStamped msg)
+    void KinoAstar::rcvWpsCallBack(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
     {
-        Eigen::Vector3d end_state(msg.pose.position.x, \
-                                  msg.pose.position.y, \
-                                  atan2(2.0*msg.pose.orientation.z*msg.pose.orientation.w, \
-                                        2.0*pow(msg.pose.orientation.w, 2)-1.0)             );
+        Eigen::Vector3d end_state(msg->pose.position.x, \
+                                  msg->pose.position.y, \
+                                  atan2(2.0*msg->pose.orientation.z*msg->pose.orientation.w, \
+                                        2.0*pow(msg->pose.orientation.w, 2)-1.0)             );
         
         plan(odom_pos, end_state);
     }
 
-    void KinoAstar::rcvOdomCallBack(const nav_msgs::OdometryConstPtr& msg)
+    void KinoAstar::rcvOdomCallBack(const nav_msgs::msg::Odometry::SharedPtr msg)
     {
         odom_pos(0) = msg->pose.pose.position.x;
         odom_pos(1) = msg->pose.pose.position.y;
@@ -85,15 +103,15 @@ namespace uneven_planner
         // if (uneven_map->isOccupancy(end_state) == 1)
         if (uneven_map->isOccupancy(start_state) == 1)
         {
-            ROS_ERROR("start is not free!!!");
+            RCLCPP_ERROR(node_->get_logger(), "start is not free!!!");
             return front_end_path;
         }
         if (uneven_map->isOccupancyXY(end_state) == 1)
         {
-            ROS_ERROR("goal is not free!!!");
+            RCLCPP_ERROR(node_->get_logger(), "goal is not free!!!");
             return front_end_path;
         }
-        ros::Time t0 = ros::Time::now();
+        rclcpp::Time t0 = node_->get_clock()->now();
         PathNodePtr cur_node = path_node_pool[0];
         cur_node->parent = NULL;
         cur_node->state = start_state.head(3);
@@ -114,12 +132,12 @@ namespace uneven_planner
 
             if((cur_node->state.head(2) - end_pt.head(2)).norm() < oneshot_range)
             {
-                ros::Time t1 = ros::Time::now();
+                rclcpp::Time t1 = node_->get_clock()->now();
                 asignShotTraj(cur_node->state, end_state);
                 if (!shot_path.empty())
                 {
-                    std::cout << "one-shot time: " << (ros::Time::now()-t1).toSec()*1000 << " ms"<<std::endl;
-                    std::cout << "front all time: " << (ros::Time::now()-t0).toSec()*1000 << " ms"<<std::endl;
+                    std::cout << "one-shot time: " << (node_->get_clock()->now()-t1).seconds()*1000 << " ms"<<std::endl;
+                    std::cout << "front all time: " << (node_->get_clock()->now()-t0).seconds()*1000 << " ms"<<std::endl;
                     retrievePath(cur_node);
                     visFrontEnd();
                     return front_end_path;
@@ -237,11 +255,11 @@ namespace uneven_planner
 
     void KinoAstar::visFrontEnd()
     {
-        nav_msgs::Path path_msg;
-        geometry_msgs::PoseStamped path_point;
+        nav_msgs::msg::Path path_msg;
+        geometry_msgs::msg::PoseStamped path_point;
 
         path_msg.header.frame_id = "world";
-        path_msg.header.stamp = ros::Time::now();
+        path_msg.header.stamp = node_->get_clock()->now();
         model.points.clear();
         for (size_t i=0; i<front_end_path.size(); i++)
         {
@@ -254,24 +272,24 @@ namespace uneven_planner
             path_point.pose.orientation.z = sin(front_end_path[i].z()/2.0);
             path_msg.poses.push_back(path_point);
 
-            std::vector<geometry_msgs::Point> model_points = getModel(front_end_path[i]);
+            std::vector<geometry_msgs::msg::Point> model_points = getModel(front_end_path[i]);
             for (size_t j=0; j<model_points.size(); j++)
                 model.points.push_back(model_points[j]);
         }
 
-        front_end_pub.publish(path_msg);
-        whole_body_pub.publish(model);
+        front_end_pub->publish(path_msg);
+        whole_body_pub->publish(model);
     }
 
     void KinoAstar::visExpanded()
     {
         if (in_test)
         {
-            sensor_msgs::PointCloud2 expanded_msg;
+            sensor_msgs::msg::PointCloud2 expanded_msg;
             pcl::toROSMsg(expanded_points, expanded_msg);
-            expanded_msg.header.stamp = ros::Time::now();
+            expanded_msg.header.stamp = node_->get_clock()->now();
             expanded_msg.header.frame_id = "world";
-            expanded_pub.publish(expanded_msg);
+            expanded_pub->publish(expanded_msg);
         }
     }
 }

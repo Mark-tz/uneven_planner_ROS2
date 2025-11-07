@@ -1,18 +1,18 @@
+// function main()
 #include "uneven_map/uneven_map.h"
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 
 using namespace uneven_planner;
 
 int main( int argc, char * argv[] )
-{ 
-  ros::init(argc, argv, "uneven_map_node");
-  ros::NodeHandle nh("~");
+{
+  rclcpp::init(argc, argv);
+  auto node = std::make_shared<rclcpp::Node>("uneven_map_node");
 
-  UnevenMap uneven_map;
+  uneven_planner::UnevenMap uneven_map;
+  uneven_map.init(node);
 
-  uneven_map.init(nh);
-
-  ros::spin();
-
+  rclcpp::spin(node);
+  rclcpp::shutdown();
   return 0;
 }

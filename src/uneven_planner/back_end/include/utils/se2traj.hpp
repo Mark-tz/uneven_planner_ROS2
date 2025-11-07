@@ -1,7 +1,7 @@
 #ifndef SE2POLYTRAJ_HPP
 #define SE2POLYTRAJ_HPP
 
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include <iostream>
 #include <cmath>
 #include <cfloat>

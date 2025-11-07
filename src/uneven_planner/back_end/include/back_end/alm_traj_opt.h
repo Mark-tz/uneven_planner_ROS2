@@ -2,9 +2,11 @@
 
 #include <thread>
 
-#include <ros/ros.h>
-#include <visualization_msgs/Marker.h>
-#include <nav_msgs/Path.h>
+#include <rclcpp/rclcpp.hpp>
+#include <visualization_msgs/msg/marker.hpp>
+#include <nav_msgs/msg/path.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 
 #include "uneven_map/uneven_map.h"
 #include "front_end/kino_astar.h"
@@ -77,18 +79,18 @@ namespace uneven_planner
             KinoAstar::Ptr  front_end;
             UnevenMap::Ptr  uneven_map;
 
-            // ros
-            ros::Publisher se2_pub;
-            ros::Publisher se3_pub;
-            ros::Publisher debug_pub;
-            ros::Subscriber odom_sub;
-            ros::Subscriber wps_sub;
+            // ROS2 publishers and subscribers
+            rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr se2_pub;
+            rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr se3_pub;
+            rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr debug_pub;
+            rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub;
+            rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr wps_sub;
             Eigen::Vector3d odom_pos;
 
         public:
-            void init(ros::NodeHandle& nh);
-            void rcvOdomCallBack(const nav_msgs::OdometryConstPtr& msg);
-            void rcvWpsCallBack(const geometry_msgs::PoseStamped msg);
+            void init(rclcpp::Node::SharedPtr node);
+            void rcvOdomCallBack(const nav_msgs::msg::Odometry::SharedPtr msg);
+            void rcvWpsCallBack(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
             int optimizeSE2Traj(const Eigen::MatrixXd &initStateXY, \
                                 const Eigen::MatrixXd &endStateXY , \
                                 const Eigen::MatrixXd &innerPtsXY , \

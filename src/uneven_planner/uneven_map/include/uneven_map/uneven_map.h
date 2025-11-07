@@ -6,14 +6,13 @@
 #include <string>
 #include <random>
 
-#include <ros/ros.h>
-#include <ros/console.h>
-#include <nav_msgs/Odometry.h>
-#include <geometry_msgs/Twist.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <sensor_msgs/PointCloud.h>
-#include <visualization_msgs/Marker.h>
-#include <visualization_msgs/MarkerArray.h>
+#include <rclcpp/rclcpp.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <geometry_msgs/msg/twist.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/msg/point_cloud.hpp>
+#include <visualization_msgs/msg/marker.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 
 #include <Eigen/Eigen>
 #include <Eigen/Eigenvalues>
@@ -97,16 +96,17 @@ namespace uneven_planner
             pcl::KdTreeFLANN<pcl::PointXYZ> kd_tree;
             pcl::KdTreeFLANN<pcl::PointXY> kd_tree_plane;
 
-            //ros
-            ros::Publisher                  origin_pub;
-            ros::Publisher                  filtered_pub;
-            ros::Publisher                  zb_pub;
-            ros::Publisher                  so2_test_pub;
-            ros::Timer                      vis_timer;
-            sensor_msgs::PointCloud2        origin_cloud_msg;
-            sensor_msgs::PointCloud2        filtered_cloud_msg;
-            visualization_msgs::MarkerArray so2_test_msg;
-            visualization_msgs::Marker      zb_msg;    
+            // ROS2 publishers and timer
+            rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr origin_pub;
+            rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_pub;
+            rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr zb_pub;
+            rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr so2_test_pub;
+            rclcpp::TimerBase::SharedPtr vis_timer;
+            rclcpp::Node::SharedPtr node_;  // 添加 node 成员变量用于日志
+            sensor_msgs::msg::PointCloud2 origin_cloud_msg;
+            sensor_msgs::msg::PointCloud2 filtered_cloud_msg;
+            visualization_msgs::msg::MarkerArray so2_test_msg;
+            visualization_msgs::msg::Marker zb_msg;    
             bool                            map_ready = false;
 
         public:
@@ -118,10 +118,10 @@ namespace uneven_planner
             static double calYawFromR(Eigen::Matrix3d R);
             static void normSO2(double& yaw);
 
-            void init(ros::NodeHandle& nh);
+            bool init(rclcpp::Node::SharedPtr node);
             bool constructMapInput();
             bool constructMap();
-            void visCallback(const ros::TimerEvent& /*event*/);
+            void visCallback();
 
             inline void getTerrain(const Eigen::Vector3d& pos, RXS2& value);
             inline void getTerrainPos(const Eigen::Vector3d& pos, Eigen::Matrix3d& R, Eigen::Vector3d& p);
@@ -156,7 +156,7 @@ namespace uneven_planner
         if (!isInMap(pos))
         {
             value = RXS2();
-            ROS_WARN("[Uneven Map] pos isn't in map, check it!");
+            RCLCPP_WARN(rclcpp::get_logger("uneven_map"), "[Uneven Map] pos isn't in map, check it!");
             return;
         }
 

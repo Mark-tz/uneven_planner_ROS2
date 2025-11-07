@@ -1,0 +1,19 @@
+<?xml version="1.0" ?>
+<sdf version="1.4">
+  <model name="forest_additions_backup">
+    <static>true</static>
+    <link name="link">
+      <visual name="visual">
+        <geometry>
+          <box>
+            <size>0.1 0.1 0.1</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0 1 0 0.5</ambient>
+          <diffuse>0 1 0 0.5</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

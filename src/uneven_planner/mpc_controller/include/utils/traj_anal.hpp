@@ -1,8 +1,8 @@
 #pragma once
 
-#include "mpc_controller/SE2Traj.h"
+#include "mpc_controller/msg/se2_traj.hpp"
 #include "utils/minco_traj.hpp"
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 
 #define BK_UNEVEN 0
 #define BK_TOWARDS 1
@@ -49,7 +49,7 @@ class TrajAnalyzer{
 private:
     mpc_utils::SE2Traj minco_traj;
     mpc_utils::MINCO_SE2 minco_anal;
-    ros::Time start_time;
+    rclcpp::Time start_time;
     double traj_duration;
 
 public:
@@ -80,7 +80,7 @@ public:
         ReadFile.open(filename.c_str(), std::ios::in);
         if(ReadFile.fail())
         {
-          ROS_ERROR("read file error!");
+          RCLCPP_ERROR(rclcpp::get_logger("traj_analyzer"), "read file error!");
           return 0;
         }
         else
@@ -122,14 +122,14 @@ public:
       return temp;
     }
 
-    void setTraj(mpc_controller::SE2TrajConstPtr msg)
+    void setTraj(const mpc_controller::msg::SE2Traj::SharedPtr msg)
     {
-      start_time = msg->start_time;
+      start_time = rclcpp::Time(msg->start_time);
 
       Eigen::MatrixXd posP(2, msg->pos_pts.size() - 2);
       Eigen::MatrixXd angleP(1, msg->angle_pts.size() - 2);
-      Eigen::VectorXd posT(msg->posT_pts.size());
-      Eigen::VectorXd angleT(msg->angleT_pts.size());
+      Eigen::VectorXd posT(msg->pos_t_pts.size());
+      Eigen::VectorXd angleT(msg->angle_t_pts.size());
       Eigen::MatrixXd initS, tailS;
 
       for (int i = 1; i < (int)msg->pos_pts.size() - 1; i++)
@@ -143,14 +143,14 @@ public:
         angleP(0, i - 1) = msg->angle_pts[i].x;
       }
 
-      for (int i = 0; i < (int)msg->posT_pts.size(); i++)
+      for (int i = 0; i < (int)msg->pos_t_pts.size(); i++)
       {
-        posT(i) = msg->posT_pts[i];
+        posT(i) = msg->pos_t_pts[i];
       }
 
-      for (int i = 0; i < (int)msg->angleT_pts.size(); i++)
+      for (int i = 0; i < (int)msg->angle_t_pts.size(); i++)
       {
-        angleT(i) = msg->angleT_pts[i];
+        angleT(i) = msg->angle_t_pts[i];
       }
 
       initS.setZero(2, 3);
@@ -255,7 +255,7 @@ public:
           uneven_trajs.push_back(traj);
         }
 
-        ROS_WARN("have gotten proposed traj num: %d, trigger ready.", traj_num);
+        RCLCPP_WARN(rclcpp::get_logger("traj_analyzer"), "have gotten proposed traj num: %d, trigger ready.", traj_num);
       }
       else if(file.find("Wangs")!=std::string::npos)
       {
@@ -309,7 +309,7 @@ public:
           towards_trajs.push_back(traj);
         }
 
-        ROS_WARN("have gotten Wangs traj num: %d, trigger ready.", traj_num);
+        RCLCPP_WARN(rclcpp::get_logger("traj_analyzer"), "have gotten Wangs traj num: %d, trigger ready.", traj_num);
       }
       else if(file.find("Jians")!=std::string::npos)
       {
@@ -349,7 +349,7 @@ public:
           putn_trajs.push_back(traj);
         }
 
-        ROS_WARN("have gotten Jians traj num: %d, trigger ready.", traj_num);
+        RCLCPP_WARN(rclcpp::get_logger("traj_analyzer"), "have gotten Jians traj num: %d, trigger ready.", traj_num);
       }
     }
 
@@ -402,7 +402,7 @@ public:
           traj_duration = putn_dt * putn_traj.size();
         }
 
-        start_time = ros::Time::now();
+        start_time = rclcpp::Clock().now();
         at_goal = false;
       }
     }
@@ -479,7 +479,7 @@ public:
       minco_traj.angle_traj = minco_anal.angle_anal.getTraj();
 
       traj_duration = minco_traj.pos_traj.getTotalDuration();
-      start_time = ros::Time::now();
+      start_time = rclcpp::Clock().now();
     }
 
     std::vector<TrajPoint> getRefPoints(const int T, double dt)
@@ -487,8 +487,8 @@ public:
       std::vector<TrajPoint> P;
       P.clear();
       TrajPoint tp;
-      ros::Time time_now = ros::Time::now();
-      double t_cur = (time_now - start_time).toSec();
+      rclcpp::Time time_now = rclcpp::Clock().now();
+      double t_cur = (time_now - start_time).seconds();
       int j=0;
 
       if (t_cur > traj_duration + 1.0)

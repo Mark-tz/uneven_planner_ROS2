@@ -1,50 +1,115 @@
 #include "back_end/alm_traj_opt.h"
+#include <cmath>
 
 namespace uneven_planner
 {
-    void ALMTrajOpt::init(ros::NodeHandle& nh)
+    void ALMTrajOpt::init(rclcpp::Node::SharedPtr node)
     {
-        nh.getParam("alm_traj_opt/rho_T", rho_T);
-        nh.getParam("alm_traj_opt/rho_ter", rho_ter);
-        nh.getParam("alm_traj_opt/max_vel", max_vel);
-        nh.getParam("alm_traj_opt/max_acc_lon", max_acc_lon);
-        nh.getParam("alm_traj_opt/max_acc_lat", max_acc_lat);
-        nh.getParam("alm_traj_opt/max_kap", max_kap);
-        nh.getParam("alm_traj_opt/min_cxi", min_cxi);
-        nh.getParam("alm_traj_opt/max_sig", max_sig);
-        nh.getParam("alm_traj_opt/use_scaling", use_scaling);
-        nh.getParam("alm_traj_opt/rho", rho);
-        nh.getParam("alm_traj_opt/beta", beta);
-        nh.getParam("alm_traj_opt/gamma", gamma);
-        nh.getParam("alm_traj_opt/epsilon_con", epsilon_con);
-        nh.getParam("alm_traj_opt/max_iter", max_iter);
-        nh.getParam("alm_traj_opt/g_epsilon", g_epsilon);
-        nh.getParam("alm_traj_opt/min_step", min_step);
-        nh.getParam("alm_traj_opt/inner_max_iter", inner_max_iter);
-        nh.getParam("alm_traj_opt/delta", delta);
-        nh.getParam("alm_traj_opt/mem_size", mem_size);
-        nh.getParam("alm_traj_opt/past", past);
-        nh.getParam("alm_traj_opt/int_K", int_K);
-        nh.getParam("alm_traj_opt/in_test", in_test);
-        nh.getParam("alm_traj_opt/in_debug", in_debug);
+        auto logger = rclcpp::get_logger("alm_traj_opt");
 
-        se2_pub = nh.advertise<nav_msgs::Path>("/alm/se2_path", 1);
-        se3_pub = nh.advertise<nav_msgs::Path>("/alm/se3_path", 1);
+        // Declare parameters with safe defaults
+        node->declare_parameter("alm_traj_opt/rho_T", 100000.0);
+        node->declare_parameter("alm_traj_opt/rho_ter", 10.0);
+        node->declare_parameter("alm_traj_opt/max_vel", 0.5);
+        node->declare_parameter("alm_traj_opt/max_acc_lon", 5.0);
+        node->declare_parameter("alm_traj_opt/max_acc_lat", 10.0);
+        node->declare_parameter("alm_traj_opt/max_kap", 2.1);
+        node->declare_parameter("alm_traj_opt/min_cxi", 0.8);
+        node->declare_parameter("alm_traj_opt/max_sig", 0.05);
+        node->declare_parameter("alm_traj_opt/use_scaling", true);
+        node->declare_parameter("alm_traj_opt/rho", 1.0);
+        node->declare_parameter("alm_traj_opt/beta", 1000.0);
+        node->declare_parameter("alm_traj_opt/gamma", 1.0);
+        node->declare_parameter("alm_traj_opt/epsilon_con", 0.001);
+        node->declare_parameter("alm_traj_opt/max_iter", 10.0);
+        node->declare_parameter("alm_traj_opt/g_epsilon", 1.0e-03);
+        node->declare_parameter("alm_traj_opt/min_step", 1.0e-32);
+        node->declare_parameter("alm_traj_opt/inner_max_iter", 10000.0);
+        node->declare_parameter("alm_traj_opt/delta", 1.0e-4);
+        node->declare_parameter("alm_traj_opt/mem_size", 256);
+        node->declare_parameter("alm_traj_opt/past", 3);
+        node->declare_parameter("alm_traj_opt/int_K", 16);
+        node->declare_parameter("alm_traj_opt/in_test", false);
+        node->declare_parameter("alm_traj_opt/in_debug", false);
+
+        // Read parameters
+        node->get_parameter("alm_traj_opt/rho_T", rho_T);
+        node->get_parameter("alm_traj_opt/rho_ter", rho_ter);
+        node->get_parameter("alm_traj_opt/max_vel", max_vel);
+        node->get_parameter("alm_traj_opt/max_acc_lon", max_acc_lon);
+        node->get_parameter("alm_traj_opt/max_acc_lat", max_acc_lat);
+        node->get_parameter("alm_traj_opt/max_kap", max_kap);
+        node->get_parameter("alm_traj_opt/min_cxi", min_cxi);
+        node->get_parameter("alm_traj_opt/max_sig", max_sig);
+        node->get_parameter("alm_traj_opt/use_scaling", use_scaling);
+        node->get_parameter("alm_traj_opt/rho", rho);
+        node->get_parameter("alm_traj_opt/beta", beta);
+        node->get_parameter("alm_traj_opt/gamma", gamma);
+        node->get_parameter("alm_traj_opt/epsilon_con", epsilon_con);
+        node->get_parameter("alm_traj_opt/max_iter", max_iter);
+        node->get_parameter("alm_traj_opt/g_epsilon", g_epsilon);
+        node->get_parameter("alm_traj_opt/min_step", min_step);
+        node->get_parameter("alm_traj_opt/inner_max_iter", inner_max_iter);
+        node->get_parameter("alm_traj_opt/delta", delta);
+        node->get_parameter("alm_traj_opt/mem_size", mem_size);
+        node->get_parameter("alm_traj_opt/past", past);
+        node->get_parameter("alm_traj_opt/int_K", int_K);
+        node->get_parameter("alm_traj_opt/in_test", in_test);
+        node->get_parameter("alm_traj_opt/in_debug", in_debug);
+
+        // Validate and fallback for critical parameters
+        if (mem_size < 1 || mem_size > 256) {
+            RCLCPP_WARN(logger, "[ALM] mem_size=%d out of range, fallback to 32", mem_size);
+            mem_size = 32;
+        }
+        if (int_K < 1 || int_K > 64) {
+            RCLCPP_WARN(logger, "[ALM] int_K=%d out of range, fallback to 16", int_K);
+            int_K = 16;
+        }
+        if (inner_max_iter < 1.0 || inner_max_iter > 20000.0) {
+            RCLCPP_WARN(logger, "[ALM] inner_max_iter=%.0f out of range, fallback to 10000", inner_max_iter);
+            inner_max_iter = 10000.0;
+        }
+        if (max_iter < 1.0 || max_iter > 1000.0) {
+            RCLCPP_WARN(logger, "[ALM] max_iter=%.0f out of range, fallback to 10", max_iter);
+            max_iter = 10.0;
+        }
+        if (max_vel <= 0.0 || max_vel > 5.0) {
+            RCLCPP_WARN(logger, "[ALM] max_vel=%.3f invalid, fallback to 0.5", max_vel);
+            max_vel = 0.5;
+        }
+
+        RCLCPP_INFO(
+            logger,
+            "[ALM] params: rho_T=%.3f, rho_ter=%.3f, max_vel=%.3f, max_acc_lon=%.3f, max_acc_lat=%.3f, max_kap=%.3f, "
+            "min_cxi=%.3f, max_sig=%.3f, use_scaling=%s, rho=%.3f, beta=%.3f, gamma=%.3f, "
+            "epsilon_con=%.6f, max_iter=%.0f, g_epsilon=%.6g, min_step=%.6g, inner_max_iter=%.0f, "
+            "delta=%.6g, mem_size=%d, past=%d, int_K=%d, in_test=%s, in_debug=%s",
+            rho_T, rho_ter, max_vel, max_acc_lon, max_acc_lat, max_kap,
+            min_cxi, max_sig, use_scaling ? "true" : "false", rho, beta, gamma,
+            epsilon_con, max_iter, g_epsilon, min_step, inner_max_iter,
+            delta, mem_size, past, int_K, in_test ? "true" : "false", in_debug ? "true" : "false"
+        );
+
+        se2_pub = node->create_publisher<nav_msgs::msg::Path>("/alm/se2_path", 1);
+        se3_pub = node->create_publisher<nav_msgs::msg::Path>("/alm/se3_path", 1);
         if (in_test)
         {
-            wps_sub = nh.subscribe<geometry_msgs::PoseStamped>("/move_base_simple/goal", 1, &ALMTrajOpt::rcvWpsCallBack, this);
-            odom_sub = nh.subscribe<nav_msgs::Odometry>("odom", 1, &ALMTrajOpt::rcvOdomCallBack, this);
+            wps_sub = node->create_subscription<geometry_msgs::msg::PoseStamped>("/move_base_simple/goal", 1, 
+                std::bind(&ALMTrajOpt::rcvWpsCallBack, this, std::placeholders::_1));
+            odom_sub = node->create_subscription<nav_msgs::msg::Odometry>("odom", 1, 
+                std::bind(&ALMTrajOpt::rcvOdomCallBack, this, std::placeholders::_1));
         }
         if (in_debug)
         {
-            debug_pub = nh.advertise<visualization_msgs::Marker>("/alm/debug_path", 1);
+            debug_pub = node->create_publisher<visualization_msgs::msg::Marker>("/alm/debug_path", 1);
         }
-            debug_pub = nh.advertise<visualization_msgs::Marker>("/alm/debug_path", 1);
+            debug_pub = node->create_publisher<visualization_msgs::msg::Marker>("/alm/debug_path", 1);
 
         return;
     }
 
-    void ALMTrajOpt::rcvOdomCallBack(const nav_msgs::OdometryConstPtr& msg)
+    void ALMTrajOpt::rcvOdomCallBack(const nav_msgs::msg::Odometry::SharedPtr msg)
     {
         odom_pos(0) = msg->pose.pose.position.x;
         odom_pos(1) = msg->pose.pose.position.y;
@@ -56,15 +121,15 @@ namespace uneven_planner
         odom_pos(2) = UnevenMap::calYawFromR(R);
     }
 
-    void ALMTrajOpt::rcvWpsCallBack(const geometry_msgs::PoseStamped msg)
+    void ALMTrajOpt::rcvWpsCallBack(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
     {
         if (in_opt)
             return;
         
-        Eigen::Vector3d end_state(msg.pose.position.x, \
-                                  msg.pose.position.y, \
-                                  atan2(2.0*msg.pose.orientation.z*msg.pose.orientation.w, \
-                                        2.0*pow(msg.pose.orientation.w, 2)-1.0)             );
+        Eigen::Vector3d end_state(msg->pose.position.x, \
+                                  msg->pose.position.y, \
+                                  atan2(2.0*msg->pose.orientation.z*msg->pose.orientation.w, \
+                                        2.0*pow(msg->pose.orientation.w, 2)-1.0)             );
         
         std::vector<Eigen::Vector3d> init_path = front_end->plan(odom_pos, end_state);
         if (init_path.empty())
@@ -111,7 +176,7 @@ namespace uneven_planner
         double piece_len_yaw = piece_len / 2.0;
         std::vector<Eigen::Vector2d> inner_xy_node;
         std::vector<double> inner_yaw_node;
-        for (int k=0; k<init_path.size()-1; k++)
+        for (size_t k=0; k<init_path.size()-1; k++)
         {
             double temp_seg = (init_path[k+1] - init_path[k]).head(2).norm();
             temp_len_yaw += temp_seg;
@@ -134,17 +199,30 @@ namespace uneven_planner
         total_time = total_len / max_vel * 1.2;
         inner_xy.resize(2, inner_xy_node.size());
         inner_yaw.resize(inner_yaw_node.size());
-        for (int i=0; i<inner_xy_node.size(); i++)
+        for (size_t i=0; i<inner_xy_node.size(); i++)
         {
             inner_xy.col(i) = inner_xy_node[i];
         }
-        for (int i=0; i<inner_yaw_node.size(); i++)
+        for (size_t i=0; i<inner_yaw_node.size(); i++)
         {
             inner_yaw(i) = inner_yaw_node[i];
         }
     
-        optimizeSE2Traj(init_xy, end_xy, inner_xy, \
+        auto logger = rclcpp::get_logger("alm_traj_opt");
+        RCLCPP_INFO(
+            logger,
+            "[ALM] path stats before optimize: init_path_size=%zu, inner_xy_nodes=%zu, inner_yaw_nodes=%zu, total_len=%.3f, max_vel=%.3f",
+            init_path.size(), inner_xy_node.size(), inner_yaw_node.size(), total_len, max_vel
+        );
+        RCLCPP_INFO(
+            logger,
+            "[ALM] rcvWpsCallBack: total_time=%.3f",
+            total_time
+        );
+
+        int ret_opt = optimizeSE2Traj(init_xy, end_xy, inner_xy, \
                         init_yaw, end_yaw, inner_yaw, total_time);
+        RCLCPP_INFO(logger, "[ALM] optimizeSE2Traj finished ret=%d", ret_opt);
         
         // visualization
         SE2Trajectory back_end_traj = getTraj();
@@ -174,11 +252,22 @@ namespace uneven_planner
                                     const double & totalTime            )
     {
         int ret_code = 0;
+        auto start_time = std::chrono::steady_clock::now();
         
         in_opt = true;
 
         piece_xy = innerPtsXY.cols() + 1;
         piece_yaw = innerPtsYaw.size() + 1;
+
+        // Guard: ensure totalTime is valid
+        double safe_total_time = totalTime;
+        if (!(safe_total_time > 1e-6) || std::isnan(safe_total_time) || std::isinf(safe_total_time)) {
+            // Fallback: estimate a base duration using average speed
+            safe_total_time = std::max(1.0, static_cast<double>(piece_xy)) * 0.3 / std::max(0.1, max_vel) * 1.2;
+            RCLCPP_WARN(rclcpp::get_logger("alm_traj_opt"), "[ALM] invalid totalTime(%.6f), fallback to %.6f",
+                        totalTime, safe_total_time);
+        }
+
         minco_se2.reset(piece_xy, piece_yaw);
         init_xy = initStateXY;
         end_xy = endStateXY;
@@ -202,6 +291,14 @@ namespace uneven_planner
         scale_cx.resize(equal_num+non_equal_num);
         scale_cx.setConstant(1.0);
 
+        RCLCPP_INFO(
+            rclcpp::get_logger("alm_traj_opt"),
+            "[ALM] optimize init: piece_xy=%d, piece_yaw=%d, int_K=%d, equal_num=%d, non_equal_num=%d, "
+            "mem_size=%d, inner_max_iter=%d, totalTime=%.3f (safe=%.3f)",
+            piece_xy, piece_yaw, int_K, (int)equal_num, (int)non_equal_num,
+            mem_size, inner_max_iter, totalTime, safe_total_time
+        );
+
         // init solution
         Eigen::VectorXd x;
         x.resize(variable_num);
@@ -211,7 +308,7 @@ namespace uneven_planner
         Eigen::Map<Eigen::MatrixXd> Pxy(x.data()+dim_T, 2, piece_xy-1);
         Eigen::Map<Eigen::MatrixXd> Pyaw(x.data()+dim_T+2*(piece_xy-1), 1, piece_yaw-1);
 
-        tau = logC2(totalTime);
+        tau = logC2(safe_total_time);
         Pxy = innerPtsXY;
         Pyaw = innerPtsYaw.transpose();
 
@@ -226,7 +323,6 @@ namespace uneven_planner
         double inner_cost;
 
         // begin PHR Augmented Lagrangian Method
-        ros::Time start_time = ros::Time::now();
         int iter = 0;
         if (use_scaling)
             initScaling(x);
@@ -241,16 +337,16 @@ namespace uneven_planner
                 result == lbfgs::LBFGS_STOP || 
                 result == lbfgs::LBFGSERR_MAXIMUMITERATION)
             {
-                ROS_INFO_STREAM("[Inner] optimization success! cost: " << inner_cost );
+                RCLCPP_INFO(rclcpp::get_logger("alm_traj_opt"), "[Inner] optimization success! cost: %f", inner_cost);
             }
             else if (result == lbfgs::LBFGSERR_MAXIMUMLINESEARCH)
             {
-                ROS_WARN("[Inner] The line-search routine reaches the maximum number of evaluations.");
+                RCLCPP_WARN(rclcpp::get_logger("alm_traj_opt"), "[Inner] The line-search routine reaches the maximum number of evaluations.");
             }
             else
             {
                 ret_code = 1;
-                ROS_ERROR("[Inner] Solver error. Return = %d, %s.", result, lbfgs::lbfgs_strerror(result));
+                RCLCPP_ERROR(rclcpp::get_logger("alm_traj_opt"), "[Inner] Solver error. Return = %d, %s.", result, lbfgs::lbfgs_strerror(result));
                 break;
             }
 
@@ -258,19 +354,22 @@ namespace uneven_planner
 
             if(judgeConvergence())
             {
-                ROS_WARN_STREAM("[ALM] Convergence! iters: "<<iter);
+                RCLCPP_WARN(rclcpp::get_logger("alm_traj_opt"), "[ALM] Convergence! iters: %d", iter);
                 break;
             }
 
             if(++iter > max_iter)
             {
                 ret_code = 2;
-                ROS_WARN("[ALM] Reach max iteration");
+                RCLCPP_WARN(rclcpp::get_logger("alm_traj_opt"), "[ALM] Reach max iteration");
                 break;
             }
         }
-        ROS_INFO_STREAM("[ALM] Time consuming: "<<(ros::Time::now()-start_time).toSec() * 1000.0 << " ms");
-        ROS_INFO_STREAM("[ALM] Jerk cost: "<<minco_se2.getTrajJerkCost() << " traj time:" << minco_se2.getTraj().getTotalDuration());
+        auto end_time = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        RCLCPP_INFO(rclcpp::get_logger("alm_traj_opt"), "[ALM] Time consuming: %ld ms", duration.count());
+        RCLCPP_INFO(rclcpp::get_logger("alm_traj_opt"), "[ALM] Jerk cost: %f traj time: %f", 
+                    minco_se2.getTrajJerkCost(), minco_se2.getTraj().getTotalDuration());
         
         in_opt = false;
         
@@ -634,7 +733,7 @@ namespace uneven_planner
                               gdTxy_fx.sum() / piece_xy + \
                               gdTyaw_fx.sum() / piece_yaw;
         double gdTau_fx = grad_Tsum_fx * getTtoTauGrad(tau);
-        for (int i=0; i<gdCxy.size(); i++)
+        for (size_t i=0; i<gdCxy.size(); i++)
         {
             Eigen::MatrixXd gdPxy_temp;
             Eigen::MatrixXd gdPyaw_temp;
@@ -1020,12 +1119,12 @@ namespace uneven_planner
     {
         int id = 0;
         double scale = 0.03;
-        visualization_msgs::Marker sphere, line_strip;
+        visualization_msgs::msg::Marker sphere, line_strip;
         sphere.header.frame_id = line_strip.header.frame_id = "world";
-        sphere.header.stamp = line_strip.header.stamp = ros::Time::now();
-        sphere.type = visualization_msgs::Marker::SPHERE_LIST;
-        line_strip.type = visualization_msgs::Marker::LINE_STRIP;
-        sphere.action = line_strip.action = visualization_msgs::Marker::ADD;
+        sphere.header.stamp = line_strip.header.stamp = rclcpp::Clock().now();
+        sphere.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+        line_strip.type = visualization_msgs::msg::Marker::LINE_STRIP;
+        sphere.action = line_strip.action = visualization_msgs::msg::Marker::ADD;
         sphere.id = id;
         line_strip.id = id + 1000;
         id++;
@@ -1039,7 +1138,7 @@ namespace uneven_planner
         sphere.scale.y = scale;
         sphere.scale.z = scale;
         line_strip.scale.x = scale / 2;
-        geometry_msgs::Point pt;
+        geometry_msgs::msg::Point pt;
 
         double dur = traj.pos_traj.getTotalDuration();
         for (double i = 0; i < dur - 1e-4; i+=0.02)
@@ -1061,17 +1160,17 @@ namespace uneven_planner
             pt.z = 0.0;
             sphere.points.push_back(pt); 
         }
-        debug_pub.publish(sphere);
-        debug_pub.publish(line_strip);
+        debug_pub->publish(sphere);
+        debug_pub->publish(line_strip);
     }
 
     void ALMTrajOpt::visSE2Traj(const SE2Trajectory& traj)
     {
-        nav_msgs::Path back_end_path;
+        nav_msgs::msg::Path back_end_path;
         back_end_path.header.frame_id = "world";
-        back_end_path.header.stamp = ros::Time::now();
+        back_end_path.header.stamp = rclcpp::Clock().now();
         
-        geometry_msgs::PoseStamped p;
+        geometry_msgs::msg::PoseStamped p;
         for (double t=0.0; t<traj.getTotalDuration(); t+=0.03)
         {
             Eigen::Vector2d pos = traj.getPos(t);
@@ -1096,16 +1195,16 @@ namespace uneven_planner
         p.pose.orientation.z = sin(yaw/2.0);
         back_end_path.poses.push_back(p);
 
-        se2_pub.publish(back_end_path);
+        se2_pub->publish(back_end_path);
     }
 
     void ALMTrajOpt::visSE3Traj(const SE2Trajectory& traj)
     {
-        nav_msgs::Path back_end_path;
+        nav_msgs::msg::Path back_end_path;
         back_end_path.header.frame_id = "world";
-        back_end_path.header.stamp = ros::Time::now();
+        back_end_path.header.stamp = rclcpp::Clock().now();
         
-        geometry_msgs::PoseStamped p;
+        geometry_msgs::msg::PoseStamped p;
         for (double t=0.0; t<traj.getTotalDuration(); t+=0.03)
         {
             Eigen::Vector3d pos = traj.getNormSE2Pos(t);
@@ -1136,6 +1235,6 @@ namespace uneven_planner
         p.pose.orientation.z = q.z();
         back_end_path.poses.push_back(p);
 
-        se3_pub.publish(back_end_path);
+        se3_pub->publish(back_end_path);
     }
 }

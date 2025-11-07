@@ -1,3 +1,4 @@
+// method UnevenMap::init()
 #include "uneven_map/uneven_map.h"
 
 namespace uneven_planner
@@ -70,30 +71,52 @@ namespace uneven_planner
         return;
     }
 
-    void UnevenMap::init(ros::NodeHandle& nh)
+    bool UnevenMap::init(std::shared_ptr<rclcpp::Node> node)
     {
-        nh.getParam("uneven_map/iter_num", iter_num);
-        nh.getParam("uneven_map/map_size_x", map_size[0]);
-        nh.getParam("uneven_map/map_size_y", map_size[1]);
-        nh.getParam("uneven_map/ellipsoid_x", ellipsoid_x);
-        nh.getParam("uneven_map/ellipsoid_y", ellipsoid_y);
-        nh.getParam("uneven_map/ellipsoid_z", ellipsoid_z);
-        nh.getParam("uneven_map/xy_resolution", xy_resolution);
-        nh.getParam("uneven_map/yaw_resolution", yaw_resolution);
-        nh.getParam("uneven_map/min_cnormal", min_cnormal);
-        nh.getParam("uneven_map/max_rho", max_rho);
-        nh.getParam("uneven_map/gravity", gravity);
-        nh.getParam("uneven_map/mass", mass);
-        nh.getParam("uneven_map/map_pcd", pcd_file);
-        nh.getParam("uneven_map/map_file", map_file);
-        origin_pub = nh.advertise<sensor_msgs::PointCloud2>("/origin_map", 1);
-        filtered_pub = nh.advertise<sensor_msgs::PointCloud2>("/filtered_map", 1);
-        zb_pub = nh.advertise<visualization_msgs::Marker>("/zb_map", 1);
-        so2_test_pub = nh.advertise<visualization_msgs::MarkerArray>("/so2_map", 1);
-        vis_timer = nh.createTimer(ros::Duration(1.0), &UnevenMap::visCallback, this);
+        // 保存 node 指针用于日志
+        node_ = node;
         
-        // size
-        map_size[2] = 2.0 * M_PI + 5e-2;
+        // 参数声明和读取
+        node->declare_parameter<std::string>("uneven_map/map_pcd", "");
+        node->declare_parameter<std::string>("uneven_map/map_file", "");
+        node->declare_parameter<int>("uneven_map/iter_num", 10);
+        node->declare_parameter<double>("uneven_map/ellipsoid_x", 0.5);
+        node->declare_parameter<double>("uneven_map/ellipsoid_y", 0.5);
+        node->declare_parameter<double>("uneven_map/ellipsoid_z", 0.5);
+        node->declare_parameter<double>("uneven_map/xy_resolution", 0.1);
+        node->declare_parameter<double>("uneven_map/yaw_resolution", 0.1);
+        node->declare_parameter<double>("uneven_map/min_cnormal", 0.5);
+        node->declare_parameter<double>("uneven_map/max_rho", 1.0);
+        node->declare_parameter<double>("uneven_map/gravity", 9.8);
+        node->declare_parameter<double>("uneven_map/mass", 1.0);
+        node->declare_parameter<double>("uneven_map/map_size_x", 20.0);
+        node->declare_parameter<double>("uneven_map/map_size_y", 20.0);
+        
+        node->get_parameter("uneven_map/map_pcd", pcd_file);
+        node->get_parameter("uneven_map/map_file", map_file);
+        node->get_parameter("uneven_map/iter_num", iter_num);
+        node->get_parameter("uneven_map/ellipsoid_x", ellipsoid_x);
+        node->get_parameter("uneven_map/ellipsoid_y", ellipsoid_y);
+        node->get_parameter("uneven_map/ellipsoid_z", ellipsoid_z);
+        node->get_parameter("uneven_map/xy_resolution", xy_resolution);
+        node->get_parameter("uneven_map/yaw_resolution", yaw_resolution);
+        node->get_parameter("uneven_map/min_cnormal", min_cnormal);
+        node->get_parameter("uneven_map/max_rho", max_rho);
+        node->get_parameter("uneven_map/gravity", gravity);
+        node->get_parameter("uneven_map/mass", mass);
+        
+        double map_size_x, map_size_y;
+        node->get_parameter("uneven_map/map_size_x", map_size_x);
+        node->get_parameter("uneven_map/map_size_y", map_size_y);
+        map_size = Eigen::Vector3d(map_size_x, map_size_y, 2.0 * M_PI + 5e-2);
+    
+        origin_pub   = node->create_publisher<sensor_msgs::msg::PointCloud2>("/origin_map", 10);
+        filtered_pub = node->create_publisher<sensor_msgs::msg::PointCloud2>("/filtered_map", 10);
+        zb_pub       = node->create_publisher<visualization_msgs::msg::Marker>("/zb_map", 10);
+        so2_test_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("/so2_map", 10);
+    
+        using namespace std::chrono_literals;
+        vis_timer = node->create_wall_timer(1s, std::bind(&UnevenMap::visCallback, this));
         
         // origin and boundary
         min_boundary = -map_size / 2.0;
@@ -179,12 +202,12 @@ namespace uneven_planner
                 }
 
         //  to pcl and marker msg
-        zb_msg.type = visualization_msgs::Marker::LINE_LIST;
+        zb_msg.type = visualization_msgs::msg::Marker::LINE_LIST;
         zb_msg.header.frame_id = "world";
         zb_msg.pose.orientation.w = 1.0;
         zb_msg.scale.x = 0.006;
         zb_msg.color.a = 0.6;
-        geometry_msgs::Point p1, p2;
+        geometry_msgs::msg::Point p1, p2;
         
         pcl::PointCloud<pcl::PointXYZI> grid_map_filtered;
         pcl::PointXYZI pt_filtered;
@@ -220,23 +243,23 @@ namespace uneven_planner
         pcl::toROSMsg(grid_map_filtered, filtered_cloud_msg);
 
         // so2_test_msg
-        visualization_msgs::Marker so2_line;
-        visualization_msgs::Marker so2_point;
+        visualization_msgs::msg::Marker so2_line;
+        visualization_msgs::msg::Marker so2_point;
         so2_line.id = 0;
-        so2_line.type = visualization_msgs::Marker::LINE_LIST;
+        so2_line.type = visualization_msgs::msg::Marker::LINE_LIST;
         so2_line.header.frame_id = "world";
         so2_line.pose.orientation.w = 1.0;
         so2_line.scale.x = 0.01;
         so2_line.color.a = 0.6;
         so2_point.id = 1;
-        so2_point.type = visualization_msgs::Marker::POINTS;
+        so2_point.type = visualization_msgs::msg::Marker::POINTS;
         so2_point.header.frame_id = "world";
         so2_point.pose.orientation.w = 1.0;
         so2_point.scale.x = 0.015;
         so2_point.scale.y = 0.015;
         so2_point.color.a = 1.0;
         so2_point.color.r = 0.8;
-        geometry_msgs::Point p0;
+        geometry_msgs::msg::Point p0;
         double r_res = 0.8;
         int ri_res = floor(r_res * xy_resolution_inv);
         for (int x=0; x<voxel_num[0]; x+=ri_res)
@@ -265,6 +288,7 @@ namespace uneven_planner
         so2_test_msg.markers.emplace_back(so2_point);
 
         map_ready = true;
+        return true;
     }
 
     bool UnevenMap::constructMapInput()
@@ -272,7 +296,7 @@ namespace uneven_planner
         ifstream pp(map_file);
         if (!pp.good())
         {
-            ROS_WARN("map file is empty, begin construct it.");
+            RCLCPP_WARN(node_->get_logger(), "map file is empty, begin construct it.");
             return false;
         }
         ifstream fp;
@@ -309,7 +333,7 @@ namespace uneven_planner
         }
         fp.close();
 
-        ROS_INFO("map: SO(2) --> RXS2 done.");
+        RCLCPP_INFO(node_->get_logger(), "map: SO(2) --> RXS2 done.");
 
         return true;
     }
@@ -411,19 +435,19 @@ namespace uneven_planner
                 }
         outf.close();
 
-        ROS_INFO("map: SE(2) --> RXS2 done.");
+        RCLCPP_INFO(node_->get_logger(), "map: SE(2) --> RXS2 done.");
 
         return true;
     }
 
-    void UnevenMap::visCallback(const ros::TimerEvent& /*event*/)
+    void UnevenMap::visCallback()
     {
         if (!map_ready)
             return;
         
-        origin_pub.publish(origin_cloud_msg);
-        filtered_pub.publish(filtered_cloud_msg);
-        zb_pub.publish(zb_msg);
-        so2_test_pub.publish(so2_test_msg);
+        origin_pub->publish(origin_cloud_msg);
+        filtered_pub->publish(filtered_cloud_msg);
+        zb_pub->publish(zb_msg);
+        so2_test_pub->publish(so2_test_msg);
     }
 }

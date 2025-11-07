@@ -2,28 +2,53 @@
  
 using namespace std;
  
-void MPC::init(ros::NodeHandle &nh)
+void MPC::init(std::shared_ptr<rclcpp::Node> node)
 {
-    nh.param("mpc/du_threshold", du_th, -1.0);
-    nh.param("mpc/dt", dt, -1.0);
-    nh.param("mpc/max_iter", max_iter, -1);
-    nh.param("mpc/predict_steps", T, -1);
-    nh.param("mpc/max_omega", max_omega, -1.0);
-    nh.param("mpc/max_domega", max_domega, -1.0);
-    nh.param("mpc/max_steer", max_steer, -1.0);
-    nh.param("mpc/max_dsteer", max_dsteer, -1.0);
-    nh.param("mpc/max_speed", max_speed, -1.0);
-    nh.param("mpc/min_speed", min_speed, -1.0);
-    nh.param("mpc/max_accel", max_accel, -1.0);
-    nh.param("mpc/wheel_base", wheel_base, -1.0);
-    nh.param("mpc/delay_num", delay_num, -1);
-    nh.param("mpc/test_mpc", test_mpc, false);
-    nh.param("mpc/model_type", model_type, DIFF);
-    nh.param("mpc/bk_mode", bk_mode, false);
-    nh.param<string>("mpc/traj_file", traj_file, "xxx");
-    nh.param<std::vector<double>>("mpc/matrix_q", Q, std::vector<double>());
-    nh.param<std::vector<double>>("mpc/matrix_r", R, std::vector<double>());
-    nh.param<std::vector<double>>("mpc/matrix_rd", Rd, std::vector<double>());
+    node_ = node;
+
+    // Declare parameters (keep original keys)
+    node_->declare_parameter<double>("mpc/du_threshold", du_th);
+    node_->declare_parameter<double>("mpc/dt", dt);
+    node_->declare_parameter<int>("mpc/max_iter", max_iter);
+    node_->declare_parameter<int>("mpc/predict_steps", T);
+    node_->declare_parameter<double>("mpc/max_omega", max_omega);
+    node_->declare_parameter<double>("mpc/max_domega", max_domega);
+    node_->declare_parameter<double>("mpc/max_steer", max_steer);
+    node_->declare_parameter<double>("mpc/max_dsteer", max_dsteer);
+    node_->declare_parameter<double>("mpc/max_speed", max_speed);
+    node_->declare_parameter<double>("mpc/min_speed", min_speed);
+    node_->declare_parameter<double>("mpc/max_accel", max_accel);
+    node_->declare_parameter<double>("mpc/wheel_base", wheel_base);
+    node_->declare_parameter<int>("mpc/delay_num", delay_num);
+    node_->declare_parameter<bool>("mpc/test_mpc", test_mpc);
+    node_->declare_parameter<int>("mpc/model_type", model_type);
+    node_->declare_parameter<bool>("mpc/bk_mode", bk_mode);
+    node_->declare_parameter<std::string>("mpc/traj_file", traj_file);
+    node_->declare_parameter<std::vector<double>>("mpc/matrix_q", Q);
+    node_->declare_parameter<std::vector<double>>("mpc/matrix_r", R);
+    node_->declare_parameter<std::vector<double>>("mpc/matrix_rd", Rd);
+
+    // Get parameters
+    node_->get_parameter("mpc/du_threshold", du_th);
+    node_->get_parameter("mpc/dt", dt);
+    node_->get_parameter("mpc/max_iter", max_iter);
+    node_->get_parameter("mpc/predict_steps", T);
+    node_->get_parameter("mpc/max_omega", max_omega);
+    node_->get_parameter("mpc/max_domega", max_domega);
+    node_->get_parameter("mpc/max_steer", max_steer);
+    node_->get_parameter("mpc/max_dsteer", max_dsteer);
+    node_->get_parameter("mpc/max_speed", max_speed);
+    node_->get_parameter("mpc/min_speed", min_speed);
+    node_->get_parameter("mpc/max_accel", max_accel);
+    node_->get_parameter("mpc/wheel_base", wheel_base);
+    node_->get_parameter("mpc/delay_num", delay_num);
+    node_->get_parameter("mpc/test_mpc", test_mpc);
+    node_->get_parameter("mpc/model_type", model_type);
+    node_->get_parameter("mpc/bk_mode", bk_mode);
+    node_->get_parameter("mpc/traj_file", traj_file);
+    node_->get_parameter("mpc/matrix_q", Q);
+    node_->get_parameter("mpc/matrix_r", R);
+    node_->get_parameter("mpc/matrix_rd", Rd);
 
     has_odom = false;
     receive_traj = false;
@@ -35,38 +60,49 @@ void MPC::init(ros::NodeHandle &nh)
     for (int i=0; i<delay_num; i++)
         output_buff.push_back(Eigen::Vector2d::Zero());
     errs.clear();
-    // cmd.longitude_speed = 0.0;
-    // cmd.steer_angle = 0.0;
     cmd.linear.x = 0.0;
     cmd.angular.z = 0.0;
 
-    // pos_cmd_pub_ = nh.advertise<uneven_map::ControlCmd>("cmd", 200);
-    pos_cmd_pub_ = nh.advertise<geometry_msgs::Twist>("cmd", 200);
-    vis_pub = nh.advertise<visualization_msgs::Marker>("/following_path", 10);
-    predict_pub = nh.advertise<visualization_msgs::Marker>("/predict_path", 10);
-    ref_pub = nh.advertise<visualization_msgs::Marker>("/reference_path", 10);
-    err_pub = nh.advertise<std_msgs::Float64>("/track_err", 10);
+    // Publishers
+    pos_cmd_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>("cmd", 10);
+    vis_pub      = node_->create_publisher<visualization_msgs::msg::Marker>("/mpc/vis", 10);
+    predict_pub  = node_->create_publisher<visualization_msgs::msg::Marker>("/mpc/predict", 10);
+    ref_pub      = node_->create_publisher<visualization_msgs::msg::Marker>("/mpc/ref", 10);
+    err_pub      = node_->create_publisher<std_msgs::msg::Float64>("/mpc/err", 10);
 
-    cmd_timer_ = nh.createTimer(ros::Duration(0.01), &MPC::cmdCallback, this);
-    odom_sub_ = nh.subscribe("odom", 1, &MPC::rcvOdomCallBack, this);
-    traj_sub_ = nh.subscribe("traj", 1, &MPC::rcvTrajCallBack, this);
+    // Subscriptions
+    odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
+        "odom", rclcpp::SensorDataQoS(),
+        std::bind(&MPC::rcvOdomCallBack, this, std::placeholders::_1)
+    );
+    traj_sub_ = node_->create_subscription<mpc_controller::msg::SE2Traj>(
+        "traj", 10,
+        std::bind(&MPC::rcvTrajCallBack, this, std::placeholders::_1)
+    );
 
     if (test_mpc || bk_mode)
     {
-        trigger_sub_ = nh.subscribe("/move_base_simple/goal", 1, &MPC::rcvTriggerCallBack, this);
+        trigger_sub_ = node_->create_subscription<geometry_msgs::msg::PoseStamped>(
+            "/move_base_simple/goal", 10,
+            std::bind(&MPC::rcvTriggerCallBack, this, std::placeholders::_1)
+        );
     }
 
     if (bk_mode)
     {
-        gazebo_pub = nh.advertise<geometry_msgs::Point>("/set_model_location", 10);
+        gazebo_pub = node_->create_publisher<geometry_msgs::msg::Point>("/set_model_location", 10);
         string o = traj_file;
         outfile.open(o.insert(o.find("trajs"), "err_"), std::ofstream::out);
         outfile.clear();
         traj_analyzer.setTraj(traj_file);
     }
+
+    // Timer
+    using namespace std::chrono_literals;
+    cmd_timer_ = node_->create_wall_timer(100ms, std::bind(&MPC::cmdCallback, this));
 }
 
-void MPC::rcvTriggerCallBack(const geometry_msgs::PoseStamped msg)
+void MPC::rcvTriggerCallBack(const geometry_msgs::msg::PoseStamped msg)
 {
     if (test_mpc)
     {
@@ -77,14 +113,14 @@ void MPC::rcvTriggerCallBack(const geometry_msgs::PoseStamped msg)
     else if (bk_mode)
     {
         Eigen::Vector3d initp = traj_analyzer.getNextInitPose();
-        geometry_msgs::Point init_point;
+        geometry_msgs::msg::Point init_point;
 
         init_point.x = initp.x();
         init_point.y = initp.y();
         init_point.z = initp.z();
 
-        gazebo_pub.publish(init_point);
-        ros::Duration(1.0).sleep();
+        gazebo_pub->publish(init_point);
+        rclcpp::sleep_for(std::chrono::seconds(1));
 
         traj_analyzer.beginNextTraj();
         eight_path = traj_analyzer.getTajWps(0.1);
@@ -92,13 +128,13 @@ void MPC::rcvTriggerCallBack(const geometry_msgs::PoseStamped msg)
     }
 }
 
-void MPC::rcvTrajCallBack(mpc_controller::SE2TrajConstPtr msg)
+void MPC::rcvTrajCallBack(mpc_controller::msg::SE2Traj::SharedPtr msg)
 {
     receive_traj = true;
     traj_analyzer.setTraj(msg);
 }
 
-void MPC::rcvOdomCallBack(nav_msgs::OdometryPtr msg)
+void MPC::rcvOdomCallBack(nav_msgs::msg::Odometry::SharedPtr msg)
 {
     has_odom = true;
     now_state.x = msg->pose.pose.position.x;
@@ -119,7 +155,7 @@ void MPC::rcvOdomCallBack(nav_msgs::OdometryPtr msg)
     }
 }
 
-void MPC::cmdCallback(const ros::TimerEvent &e)
+void MPC::cmdCallback()
 {
     drawFollowPath();
 
@@ -130,10 +166,10 @@ void MPC::cmdCallback(const ros::TimerEvent &e)
     if (!P.empty())
     {
         Eigen::Vector2d err_vec(P[0].x - now_state.x, P[0].y - now_state.y);
-        std_msgs::Float64 err_msg;
+        std_msgs::msg::Float64 err_msg;
         errs.push_back(err_vec.norm());
         err_msg.data = errs.back();
-        err_pub.publish(err_msg);
+        err_pub->publish(err_msg);
     }
 
     if (traj_analyzer.at_goal)
@@ -142,7 +178,7 @@ void MPC::cmdCallback(const ros::TimerEvent &e)
         // cmd.angular_vel = 0.0;
         cmd.linear.x = 0.0;
         cmd.angular.z = 0.0;
-        pos_cmd_pub_.publish(cmd);
+        pos_cmd_pub_->publish(cmd);
 
         if (bk_mode)
         {
@@ -154,21 +190,21 @@ void MPC::cmdCallback(const ros::TimerEvent &e)
             {
                 outfile << "all_mean_track_err: " << mean_err_all <<std::endl;
                 outfile.close();
-                ROS_WARN("all_mean_track_err: %lf", mean_err_all);
-                ROS_WARN("Benchmark Done.");
+                RCLCPP_WARN(node_->get_logger(), "all_mean_track_err: %lf", mean_err_all);
+                RCLCPP_WARN(node_->get_logger(), "Benchmark Done.");
                 receive_traj = false;
                 return;
             }
-            geometry_msgs::Point init_point;
+            geometry_msgs::msg::Point init_point;
 
             init_point.x = initp.x();
             init_point.y = initp.y();
             init_point.z = initp.z();
 
-            gazebo_pub.publish(init_point);
+            gazebo_pub->publish(init_point);
             receive_traj = false;
             errs.clear();
-            ros::Duration(1.0).sleep();
+            rclcpp::sleep_for(std::chrono::seconds(1));
 
             traj_analyzer.beginNextTraj();
             eight_path = traj_analyzer.getTajWps(0.1);
@@ -188,7 +224,7 @@ void MPC::cmdCallback(const ros::TimerEvent &e)
         smooth_yaw();
         getCmd();
     }
-    pos_cmd_pub_.publish(cmd);
+    pos_cmd_pub_->publish(cmd);
 }
 
 void MPC::getLinearModel(const MPCNode& node)
@@ -797,7 +833,7 @@ void MPC::solveMPCAcker(void)
 void MPC::getCmd(void)
 {
     int iter;
-    ros::Time begin = ros::Time::now();
+    rclcpp::Time begin = node_->get_clock()->now();
     for (iter=0; iter<max_iter; iter++)
     {
         predictMotion();
@@ -812,14 +848,14 @@ void MPC::getCmd(void)
             du = du + fabs(output(0, i) - last_output(0, i))+ fabs(output(1, i) - last_output(1, i));
         }
         // break;
-        if (du <= du_th || (ros::Time::now()-begin).toSec()>0.01)
+        if (du <= du_th || (node_->get_clock()->now()-begin).seconds()>0.01)
         {
             break;
         }
     }
     if (iter == max_iter)
     {
-        ROS_WARN("MPC Iterative is max iter");
+        RCLCPP_WARN(node_->get_logger(), "MPC Iterative is max iter");
     }
 
     predictMotion(xopt);

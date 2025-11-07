@@ -1,3 +1,4 @@
+// class MPC
 #pragma once
 
 #include <Eigen/Eigen>
@@ -12,13 +13,14 @@
  
 #include <OsqpEigen/OsqpEigen.h>
 
-#include <ros/ros.h>
-#include <std_msgs/Float64.h>
-#include <nav_msgs/Odometry.h>
-#include <geometry_msgs/PoseStamped.h>
-#include <geometry_msgs/Twist.h>
-#include <geometry_msgs/Point.h>
-#include <visualization_msgs/Marker.h>
+#include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/float64.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/twist.hpp>
+#include <geometry_msgs/msg/point.hpp>
+#include <visualization_msgs/msg/marker.hpp>
+#include "mpc_controller/msg/se2_traj.hpp"
 
 #include "utils/traj_anal.hpp"
 
@@ -96,16 +98,20 @@ private:
     MPCInput now_input;
     TrajAnalyzer traj_analyzer;
 
-    // ros interface
-	ros::NodeHandle node_;
-    ros::Timer cmd_timer_;
-    ros::Publisher pos_cmd_pub_, vis_pub, predict_pub, ref_pub, err_pub;
-    ros::Subscriber odom_sub_, traj_sub_, trigger_sub_;
-    geometry_msgs::Twist cmd;
-    void cmdCallback(const ros::TimerEvent &e);
-    void rcvOdomCallBack(nav_msgs::OdometryPtr msg);
-    void rcvTrajCallBack(mpc_controller::SE2TrajConstPtr msg);
-    void rcvTriggerCallBack(const geometry_msgs::PoseStamped msg);
+    // ros interface (ROS2)
+    std::shared_ptr<rclcpp::Node> node_;
+    rclcpp::TimerBase::SharedPtr cmd_timer_;
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr pos_cmd_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr vis_pub, predict_pub, ref_pub;
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr err_pub;
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+    rclcpp::Subscription<mpc_controller::msg::SE2Traj>::SharedPtr traj_sub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr trigger_sub_;
+    geometry_msgs::msg::Twist cmd;
+    void cmdCallback(); // ROS2: 无参版本
+    void rcvOdomCallBack(nav_msgs::msg::Odometry::SharedPtr msg);
+    void rcvTrajCallBack(mpc_controller::msg::SE2Traj::SharedPtr msg);
+    void rcvTriggerCallBack(const geometry_msgs::msg::PoseStamped msg);
 
     // for test tracking performance
     bool test_mpc;
@@ -117,7 +123,7 @@ private:
     std::vector<double> errs;
     string traj_file;
     std::ofstream outfile;
-    ros::Publisher gazebo_pub;
+    rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr gazebo_pub;
 
     // MPC function
     void getLinearModel(const MPCNode& node);
@@ -171,12 +177,12 @@ private:
     {
         int id = 0;
         double sc = 0.02;
-        visualization_msgs::Marker sphere, line_strip;
+        visualization_msgs::msg::Marker sphere, line_strip;
         sphere.header.frame_id = line_strip.header.frame_id = "world";
-        sphere.header.stamp = line_strip.header.stamp = ros::Time::now();
-        sphere.type = visualization_msgs::Marker::SPHERE_LIST;
-        line_strip.type = visualization_msgs::Marker::LINE_STRIP;
-        sphere.action = line_strip.action = visualization_msgs::Marker::ADD;
+        sphere.header.stamp = line_strip.header.stamp = node_->get_clock()->now();
+        sphere.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+        line_strip.type = visualization_msgs::msg::Marker::LINE_STRIP;
+        sphere.action = line_strip.action = visualization_msgs::msg::Marker::ADD;
         sphere.id = id;
         line_strip.id = id + 1000;
 
@@ -189,7 +195,7 @@ private:
         sphere.scale.y = sc;
         sphere.scale.z = sc;
         line_strip.scale.x = sc / 2;
-        geometry_msgs::Point pt;
+        geometry_msgs::msg::Point pt;
         
         for (auto p:eight_path)
         {
@@ -198,18 +204,18 @@ private:
             pt.z = 0.0;
             line_strip.points.push_back(pt);
         }
-        vis_pub.publish(line_strip);
+        vis_pub->publish(line_strip);
     }
     void drawPredictPath(MPCState *b)
     {
         int id = 0;
         double sc = 0.02;
-        visualization_msgs::Marker sphere, line_strip;
+        visualization_msgs::msg::Marker sphere, line_strip;
         sphere.header.frame_id = line_strip.header.frame_id = "world";
-        sphere.header.stamp = line_strip.header.stamp = ros::Time::now();
-        sphere.type = visualization_msgs::Marker::SPHERE_LIST;
-        line_strip.type = visualization_msgs::Marker::LINE_STRIP;
-        sphere.action = line_strip.action = visualization_msgs::Marker::ADD;
+        sphere.header.stamp = line_strip.header.stamp = node_->get_clock()->now();
+        sphere.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+        line_strip.type = visualization_msgs::msg::Marker::LINE_STRIP;
+        sphere.action = line_strip.action = visualization_msgs::msg::Marker::ADD;
         sphere.id = id;
         line_strip.id = id + 1000;
 
@@ -222,7 +228,7 @@ private:
         sphere.scale.y = sc;
         sphere.scale.z = sc;
         line_strip.scale.x = sc / 2;
-        geometry_msgs::Point pt;
+        geometry_msgs::msg::Point pt;
         
         for (int i=0; i<T; i++)
         {
@@ -231,18 +237,18 @@ private:
             pt.z = 0.0;
             line_strip.points.push_back(pt);
         }
-        predict_pub.publish(line_strip);
+        predict_pub->publish(line_strip);
     }
     void drawRefPath(void)
     {
         int id = 0;
         double sc = 0.02;
-        visualization_msgs::Marker sphere, line_strip;
+        visualization_msgs::msg::Marker sphere, line_strip;
         sphere.header.frame_id = line_strip.header.frame_id = "world";
-        sphere.header.stamp = line_strip.header.stamp = ros::Time::now();
-        sphere.type = visualization_msgs::Marker::SPHERE_LIST;
-        line_strip.type = visualization_msgs::Marker::LINE_STRIP;
-        sphere.action = line_strip.action = visualization_msgs::Marker::ADD;
+        sphere.header.stamp = line_strip.header.stamp = node_->get_clock()->now();
+        sphere.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+        line_strip.type = visualization_msgs::msg::Marker::LINE_STRIP;
+        sphere.action = line_strip.action = visualization_msgs::msg::Marker::ADD;
         sphere.id = id;
         line_strip.id = id + 1000;
 
@@ -255,7 +261,7 @@ private:
         sphere.scale.y = sc;
         sphere.scale.z = sc;
         line_strip.scale.x = sc / 2;
-        geometry_msgs::Point pt;
+        geometry_msgs::msg::Point pt;
         
         for (int i=0; i<T; i++)
         {
@@ -264,11 +270,11 @@ private:
             pt.z = 0.0;
             line_strip.points.push_back(pt);
         }
-        ref_pub.publish(line_strip);
+        ref_pub->publish(line_strip);
     }
 
 public:
 	MPC() {}
-    void init(ros::NodeHandle &nh);
+    void init(std::shared_ptr<rclcpp::Node> node);
 	~MPC() {}
 };

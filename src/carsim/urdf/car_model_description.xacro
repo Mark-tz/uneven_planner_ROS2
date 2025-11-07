@@ -17,7 +17,7 @@
     <link name="base_link">
         <visual>
             <geometry>
-                <mesh filename="package://carsim/meshes/base_link.STL" />
+                <mesh filename="file://$(find carsim)/meshes/base_link.STL" />
             </geometry>
             <origin xyz="-0.13 0 0" rpy="0 0 0" />
             <material name="yellow">
@@ -260,6 +260,69 @@
         <dynamics damping="0.0" friction="${rotation_fiction}"/>
     </joint>
     <xacro:wheel_transmission name="right_rear_wheel" />
+    
+    <!-- ROS 2 Control Hardware Interface -->
+    <ros2_control name="GazeboSystem" type="system">
+        <hardware>
+            <plugin>gazebo_ros2_control/GazeboSystem</plugin>
+        </hardware>
+        
+        <!-- Wheel Joints -->
+        <joint name="left_rear_wheel_joint">
+            <command_interface name="velocity">
+                <param name="min">-10</param>
+                <param name="max">10</param>
+            </command_interface>
+            <state_interface name="velocity"/>
+            <state_interface name="position"/>
+        </joint>
+        
+        <joint name="right_rear_wheel_joint">
+            <command_interface name="velocity">
+                <param name="min">-10</param>
+                <param name="max">10</param>
+            </command_interface>
+            <state_interface name="velocity"/>
+            <state_interface name="position"/>
+        </joint>
+        
+        <joint name="left_front_wheel_joint">
+            <command_interface name="velocity">
+                <param name="min">-10</param>
+                <param name="max">10</param>
+            </command_interface>
+            <state_interface name="velocity"/>
+            <state_interface name="position"/>
+        </joint>
+        
+        <joint name="right_front_wheel_joint">
+            <command_interface name="velocity">
+                <param name="min">-10</param>
+                <param name="max">10</param>
+            </command_interface>
+            <state_interface name="velocity"/>
+            <state_interface name="position"/>
+        </joint>
+        
+        <!-- Steering Joints -->
+        <joint name="left_steering_hinge_joint">
+            <command_interface name="position">
+                <param name="min">-0.7854</param>
+                <param name="max">0.7854</param>
+            </command_interface>
+            <state_interface name="position"/>
+            <state_interface name="velocity"/>
+        </joint>
+        
+        <joint name="right_steering_hinge_joint">
+            <command_interface name="position">
+                <param name="min">-0.7854</param>
+                <param name="max">0.7854</param>
+            </command_interface>
+            <state_interface name="position"/>
+            <state_interface name="velocity"/>
+        </joint>
+    </ros2_control>
     
     <xacro:include filename="$(find carsim)/urdf/racecar.gazebo" />
 </robot>

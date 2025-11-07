@@ -1,3 +1,4 @@
+// class PlanManager
 #pragma once
 
 #include <fstream>
@@ -5,14 +6,15 @@
 #include <random>
 #include <time.h>
 
-#include <ros/ros.h>
-#include <visualization_msgs/Marker.h>
-#include <nav_msgs/Path.h>
-
+#include <rclcpp/rclcpp.hpp>
+#include <visualization_msgs/msg/marker.hpp>
+#include <nav_msgs/msg/path.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 #include "uneven_map/uneven_map.h"
 #include "front_end/kino_astar.h"
 #include "back_end/alm_traj_opt.h"
-#include "mpc_controller/SE2Traj.h"
+#include "mpc_controller/msg/se2_traj.hpp"
 
 namespace uneven_planner
 {
@@ -26,20 +28,19 @@ namespace uneven_planner
             double yaw_piece_times;
             double init_sig_vel;
             Eigen::Vector3d odom_pos;
-            string bk_dir;
+            std::string bk_dir;
 
             UnevenMap::Ptr uneven_map;
             KinoAstar::Ptr kino_astar;
             ALMTrajOpt traj_opt;
             SE2Trajectory opted_traj;
 
-            ros::Publisher traj_pub;
-            ros::Subscriber odom_sub;
-            ros::Subscriber target_sub;
-            
+            rclcpp::Publisher<mpc_controller::msg::SE2Traj>::SharedPtr traj_pub;
+            rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub;
+            rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr target_sub;
         public:
-            void init(ros::NodeHandle& nh);
-            void rcvOdomCallBack(const nav_msgs::OdometryConstPtr& msg);
-            void rcvWpsCallBack(const geometry_msgs::PoseStamped msg);
+            void init(std::shared_ptr<rclcpp::Node> node);
+            void rcvOdomCallBack(const nav_msgs::msg::Odometry::SharedPtr msg);
+            void rcvWpsCallBack(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
     };
 }

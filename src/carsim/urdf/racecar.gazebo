@@ -3,29 +3,15 @@
 
   <!-- Gazebo Plugins -->
   <gazebo>
-    <plugin name="gazebo_ros_control" filename="libgazebo_ros_control.so">
-      <robotNamespace>/racebot</robotNamespace>
-      <robotParam>robot_description</robotParam>
-      <robotSimType>gazebo_ros_control/DefaultRobotHWSim</robotSimType>
-      <legacyModeNS>true</legacyModeNS>
+    <plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control.so">
+      <parameters>$(find carsim)/config/controller_config.yaml</parameters>
+      <ros>
+        <namespace>/racebot</namespace>
+      </ros>
     </plugin>
   </gazebo>
 
-  <gazebo>
-    <plugin name="joint_state_publisher" filename="libgazebo_ros_joint_state_publisher.so">
-      <jointName>
-        left_rear_wheel_joint,
-        left_steering_hinge_joint,
-        left_front_wheel_joint,
-        right_rear_wheel_joint,
-        right_steering_hinge_joint,
-        right_front_wheel_joint
-      </jointName>
-      <updateRate>50.0</updateRate>
-      <robotNamespace>/racebot</robotNamespace>
-      <alwaysOn>true</alwaysOn>
-    </plugin>
-  </gazebo>
+  <!-- Joint State Publisher is now handled by joint_state_broadcaster in controller_config.yaml -->
 
   <!-- Gazebo references -->
   <gazebo reference="base_link">

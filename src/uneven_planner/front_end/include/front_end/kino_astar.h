@@ -3,10 +3,12 @@
 #include <Eigen/Eigen>
 #include <Eigen/Dense>
 
-#include <ros/ros.h>
-#include <visualization_msgs/Marker.h>
-#include <nav_msgs/Path.h>
-#include <sensor_msgs/PointCloud2.h>
+#include <rclcpp/rclcpp.hpp>
+#include <visualization_msgs/msg/marker.hpp>
+#include <nav_msgs/msg/path.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 
 #include <iostream>
 #include <string>
@@ -128,12 +130,13 @@ namespace uneven_planner
             bool in_test;
 
             // ros
-            ros::Subscriber wps_sub;
-            ros::Subscriber odom_sub;
-            ros::Publisher front_end_pub;
-            ros::Publisher whole_body_pub;
-            ros::Publisher expanded_pub;
-            visualization_msgs::Marker model;
+            rclcpp::Node::SharedPtr node_;
+            rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr wps_sub;
+            rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub;
+            rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr front_end_pub;
+            rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr whole_body_pub;
+            rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr expanded_pub;
+            visualization_msgs::msg::Marker model;
             Eigen::Vector3d odom_pos;
 
         public:
@@ -144,11 +147,11 @@ namespace uneven_planner
                     delete path_node_pool[i];
             }
             
-            void init(ros::NodeHandle& nh);
+            void init(rclcpp::Node::SharedPtr node);
             void visFrontEnd();
             void visExpanded();
-            void rcvWpsCallBack(const geometry_msgs::PoseStamped msg);
-            void rcvOdomCallBack(const nav_msgs::OdometryConstPtr& msg);
+            void rcvWpsCallBack(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
+            void rcvOdomCallBack(const nav_msgs::msg::Odometry::SharedPtr msg);
             std::vector<Eigen::Vector3d> plan(const Eigen::Vector3d& start_state, const Eigen::Vector3d& end_state);
 
             inline void setEnvironment(const UnevenMap::Ptr& env);
@@ -161,7 +164,7 @@ namespace uneven_planner
                                     const Eigen::Vector2d &ctrl_input, const double& T);
             inline void asignShotTraj(const Eigen::Vector3d &state1, const Eigen::Vector3d &state2);
             inline void retrievePath(PathNodePtr end_node);
-            inline std::vector<geometry_msgs::Point> getModel(const Eigen::Vector3d state);
+            inline std::vector<geometry_msgs::msg::Point> getModel(const Eigen::Vector3d state);
 
             typedef shared_ptr<KinoAstar> Ptr;
             typedef unique_ptr<KinoAstar> UniPtr;
@@ -291,11 +294,11 @@ namespace uneven_planner
         return;
     }
 
-    inline std::vector<geometry_msgs::Point> KinoAstar::getModel(const Eigen::Vector3d state)
+    inline std::vector<geometry_msgs::msg::Point> KinoAstar::getModel(const Eigen::Vector3d state)
     {
-        std::vector<geometry_msgs::Point> models;
+        std::vector<geometry_msgs::msg::Point> models;
 
-        geometry_msgs::Point p[4];
+        geometry_msgs::msg::Point p[4];
         p[0].x = 1.5;
         p[0].y = 1.0;
         p[0].z = 0.0;

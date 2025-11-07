@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import atexit
 import os
@@ -6,7 +6,8 @@ import signal
 from threading import Lock
 from tkinter import Frame, Label, Tk
 import time
-import rospy
+import rclpy
+from rclpy.node import Node
 from ackermann_msgs.msg import AckermannDriveStamped
 from geometry_msgs.msg import Twist
 
@@ -18,7 +19,7 @@ QUIT = "q"
 
 state = [False, False, False, False]
 state_lock = Lock()
-state_pub = None
+node = None
 root = None
 control = False
 
@@ -64,50 +65,53 @@ def keydown(e):
             state[1] = False
         control = sum(state) > 0
 
-def publish_cb(_):
-    with state_lock:
-        if not control:
-            return
-        ack = AckermannDriveStamped()
-        if state[0]:
-            command.linear.x = max_velocity
-        elif state[2]:
-            command.linear.x = -max_velocity
-
-        if state[1]:
-            command.angular.z = max_steering_angle
-        elif state[3]:
-            command.angular.z = -max_steering_angle
-
-        if state_pub is not None:
-            state_pub.publish(command)
-
 def exit_func():
     os.system("xset r on")
 
 
 def shutdown():
     root.destroy()
-    rospy.signal_shutdown("shutdown")
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+class KeyboardControlNode(Node):
+    def __init__(self):
+        super().__init__('keyboard_control')
+        self.state_pub = self.create_publisher(Twist, "/racebot/cmd_vel", 1)
+        self.command = Twist()
+        self.max_velocity = 1
+        self.max_steering_angle = 0.5
+        self.timer = self.create_timer(0.05, self.publish_cb)
+
+    def publish_cb(self):
+        global state
+        global state_lock
+        
+        with state_lock:
+            if state[0]:  # UP
+                self.command.linear.x = self.max_velocity
+            elif state[2]:  # DOWN
+                self.command.linear.x = -self.max_velocity
+            else:
+                self.command.linear.x = 0.0
+
+            if state[1]:  # LEFT
+                self.command.angular.z = self.max_steering_angle
+            elif state[3]:  # RIGHT
+                self.command.angular.z = -self.max_steering_angle
+            else:
+                self.command.angular.z = 0.0
+
+        self.state_pub.publish(self.command)
 
 
 def main():
-    global state_pub
     global root
-    global command
-    global max_velocity
-    global max_steering_angle
+    global node
     
-    max_velocity = 1
-    max_steering_angle = 0.5
-
-    state_pub = rospy.Publisher(
-        "/racebot/cmd_vel", Twist, queue_size=1
-    )
-    
-    command = Twist()
-    
-    rospy.Timer(rospy.Duration(0.05), publish_cb)
+    rclpy.init()
+    node = KeyboardControlNode()
     
     atexit.register(exit_func)
     os.system("xset r off")
@@ -130,8 +134,6 @@ def main():
 
 
 if __name__ == "__main__":
-    rospy.init_node("keyboard_control", disable_signals=True)
-
     signal.signal(signal.SIGINT, lambda s, f: shutdown())
     time.sleep(5) #sleep for 5 seconds to wait for spawning model
     main()

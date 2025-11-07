@@ -9,20 +9,28 @@ Install the requirements.
 **gazebo plugins**: (use ros noetic with Ubuntu20.04 as an example)
 
 ```
-sudo apt install ros-noetic-robot-state-publisher*
-sudo apt install ros-noetic-joint-state-controller*
-sudo apt install ros-noetic-controller*
-sudo apt install ros-noetic-velocity-controllers*
-sudo apt install ros-noetic-effort-controllers
-sudo apt install ros-noetic-position-controllers
-sudo apt install ros-noetic-gazebo-ros-control
-sudo apt install ros-noetic-hector-gazebo
-sudo apt install ros-noetic-effort-controllers
-sudo apt install ros-noetic-joint-state-controller
-sudo apt install ros-noetic-position-controllers
-sudo apt install ros-noetic-velocity-controllers
-sudo apt install ros-noetic-ompl
-sudo apt install ros-noetic-tf2-geometry-msgs ros-noetic-ackermann-msgs ros-noetic-joy 
+# 系统依赖安装
+sudo apt update
+
+# 安装基础开发工具
+sudo apt install build-essential cmake git
+
+# 安装 MPI 开发包（解决 PCL/VTK 依赖问题）
+sudo apt install libopenmpi-dev openmpi-bin
+
+# 安装 ROS2 Humble 相关包
+sudo apt install ros-humble-robot-state-publisher
+sudo apt install ros-humble-joint-state-controller
+sudo apt install ros-humble-velocity-controllers
+sudo apt install ros-humble-effort-controllers
+sudo apt install ros-humble-position-controllers
+sudo apt install ros-humble-gazebo-ros-pkgs
+sudo apt install ros-humble-gazebo-msgs
+sudo apt install ros-humble-ompl
+sudo apt install ros-humble-tf2-geometry-msgs ros-humble-ackermann-msgs ros-humble-joy
+
+# 安装 PCL 和 OpenCV 开发包
+sudo apt install libpcl-dev libopencv-dev
 ```
 
 **osqp-0.6.2 and osqp-eigen v0.8.0 for mpc controller:**

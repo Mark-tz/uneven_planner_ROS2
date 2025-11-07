@@ -1,22 +1,23 @@
 #include "front_end/kino_astar.h"
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 
 using namespace uneven_planner;
 
 int main( int argc, char * argv[] )
 { 
-    ros::init(argc, argv, "front_end_node");
-    ros::NodeHandle nh("~");
+    rclcpp::init(argc, argv);
+    auto node = rclcpp::Node::make_shared("front_end_node");
 
     KinoAstar kino_astar;
     UnevenMap uneven_map;
     UnevenMap::Ptr uneven_map_ptr = make_shared<UnevenMap>(uneven_map);
     
-    uneven_map_ptr->init(nh);
-    kino_astar.init(nh);
+    uneven_map_ptr->init(node);
+    kino_astar.init(node);
     kino_astar.setEnvironment(uneven_map_ptr);
 
-    ros::spin();
+    rclcpp::spin(node);
+    rclcpp::shutdown();
 
     return 0;
 }

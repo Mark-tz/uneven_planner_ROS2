@@ -1,17 +1,18 @@
+// function main()
 #include "plan_manager/plan_manager.h"
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 
 using namespace uneven_planner;
 
 int main( int argc, char * argv[] )
-{ 
-    ros::init(argc, argv, "manager_node");
-    ros::NodeHandle nh("~");
+{
+    rclcpp::init(argc, argv);
+    auto node = std::make_shared<rclcpp::Node>("manager_node");
 
-    PlanManager plan_manager;
-    plan_manager.init(nh);
+    uneven_planner::PlanManager plan_manager;
+    plan_manager.init(node);
 
-    ros::spin();
-
+    rclcpp::spin(node);
+    rclcpp::shutdown();
     return 0;
 }
