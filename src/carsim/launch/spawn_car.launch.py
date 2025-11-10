@@ -5,6 +5,8 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Command
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+from launch.actions import RegisterEventHandler
+from launch.event_handlers import OnProcessExit
 import os
 
 
@@ -54,7 +56,7 @@ def generate_launch_description():
             PathJoinSubstitution([gazebo_ros_pkg, 'launch', 'gazebo.launch.py'])
         ]),
         launch_arguments={
-            'verbose': LaunchConfiguration('verbose'),
+            'verbose': 'false',
             'gui': LaunchConfiguration('gui'),
             'paused': LaunchConfiguration('paused'),
             'use_sim_time': LaunchConfiguration('use_sim_time'),
@@ -106,13 +108,13 @@ def generate_launch_description():
         arguments=['--ros-args', '--log-level', 'warn']
     )
 
-    keyboard_control_node = Node(
-        package='carsim',
-        executable='keyboard_control.py',
-        name='keyboard_control',
-        output='log',
-        arguments=['--ros-args', '--log-level', 'warn']
-    )
+    # keyboard_control_node = Node(
+    #     package='carsim',
+    #     executable='keyboard_control.py',
+    #     name='keyboard_control',
+    #     output='log',
+    #     arguments=['--ros-args', '--log-level', 'warn']
+    # )
 
     true_state_pub_node = Node(
         package='carsim',
@@ -128,6 +130,57 @@ def generate_launch_description():
         name='world_tf_pub',
         output='log',
         arguments=['--ros-args', '--log-level', 'warn']
+    )
+
+    # ROS2控制器spawner（对应ROS1的controller_manager/spawner）
+    joint_state_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        name='spawner_joint_state_broadcaster',
+        arguments=['joint_state_broadcaster', '--controller-manager', '/racebot/controller_manager'],
+        output='log'
+    )
+    rr_vel_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        name='spawner_right_rear_velocity_controller',
+        arguments=['right_rear_velocity_controller', '--controller-manager', '/racebot/controller_manager'],
+        output='log'
+    )
+    lr_vel_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        name='spawner_left_rear_velocity_controller',
+        arguments=['left_rear_velocity_controller', '--controller-manager', '/racebot/controller_manager'],
+        output='log'
+    )
+    rf_vel_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        name='spawner_right_front_velocity_controller',
+        arguments=['right_front_velocity_controller', '--controller-manager', '/racebot/controller_manager'],
+        output='log'
+    )
+    lf_vel_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        name='spawner_left_front_velocity_controller',
+        arguments=['left_front_velocity_controller', '--controller-manager', '/racebot/controller_manager'],
+        output='log'
+    )
+    rf_pos_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        name='spawner_right_front_steering_position_controller',
+        arguments=['right_front_steering_position_controller', '--controller-manager', '/racebot/controller_manager'],
+        output='log'
+    )
+    lf_pos_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        name='spawner_left_front_steering_position_controller',
+        arguments=['left_front_steering_position_controller', '--controller-manager', '/racebot/controller_manager'],
+        output='log'
     )
 
     # 将车辆定位到地图中的设定点（ROS2版本C++节点）
@@ -166,21 +219,18 @@ def generate_launch_description():
         P_pos_arg,
         Y_pos_arg,
         
-        # Debug check (disabled)
-        # debug_check,
-        
         # Main processes
         gazebo_launch,
         robot_state_publisher,
         spawn_entity,
-
-        # 工具节点（恢复 ROS1 的行为）
-        cmdvel2gazebo_node,
-        keyboard_control_node,
+        # 工具节点
+        cmdvel2gazebo_node, 
+        # keyboard_control_node, 
         true_state_pub_node,
-        world_tf_pub_node,
+        world_tf_pub_node, 
         search_for_setpoint_node,
-
+        joint_state_spawner, rr_vel_spawner, lr_vel_spawner,
+        rf_vel_spawner, lf_vel_spawner, rf_pos_spawner, lf_pos_spawner,
         # RViz (conditional)
         Node(
             package='rviz2',

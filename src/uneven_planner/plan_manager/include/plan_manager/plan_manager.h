@@ -38,6 +38,7 @@ namespace uneven_planner
             rclcpp::Publisher<mpc_controller::msg::SE2Traj>::SharedPtr traj_pub;
             rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub;
             rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr target_sub;
+            std::shared_ptr<rclcpp::Node> node_;
         public:
             void init(std::shared_ptr<rclcpp::Node> node);
             void rcvOdomCallBack(const nav_msgs::msg::Odometry::SharedPtr msg);

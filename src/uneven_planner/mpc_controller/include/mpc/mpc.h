@@ -23,6 +23,7 @@
 #include "mpc_controller/msg/se2_traj.hpp"
 
 #include "utils/traj_anal.hpp"
+#include <rcl/time.h>
 
 #define OMINI 0
 #define DIFF  1
@@ -78,9 +79,9 @@ private:
     double wheel_base = 0.5; 
 
     // MPC dataset
-    Eigen::MatrixXd A;
-    Eigen::MatrixXd B;
-    Eigen::VectorXd C;
+    Eigen::Matrix3d A;
+    Eigen::Matrix<double, 3, 2> B;
+    Eigen::Vector3d C;
     MPCNode xbar[500];
     Eigen::MatrixXd xref;
     Eigen::MatrixXd dref;
@@ -272,7 +273,8 @@ private:
         }
         ref_pub->publish(line_strip);
     }
-
+    rclcpp::Time traj_start_time_{0, 0, RCL_SYSTEM_TIME};
+    int64_t traj_start_ns_ = 0;
 public:
 	MPC() {}
     void init(std::shared_ptr<rclcpp::Node> node);

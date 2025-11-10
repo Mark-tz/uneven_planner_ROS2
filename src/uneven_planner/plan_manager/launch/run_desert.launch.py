@@ -30,7 +30,10 @@ def generate_launch_description():
             package='plan_manager',
             executable='manager_node',
             name='manager_node',
-            parameters=[ join(get_package_share_directory('plan_manager'), 'params', 'run_desert.yaml') ],
+            parameters=[
+                {'use_sim_time': True},  # 显式开启仿真时钟
+                join(get_package_share_directory('plan_manager'), 'params', 'run_desert.yaml')
+            ],
             remappings=[
                 ('cmd',  cmd_topic),
                 ('odom', odom_topic),
@@ -41,12 +44,15 @@ def generate_launch_description():
             package='mpc_controller',
             executable='mpc_controller_node',
             name='mpc_controller_node',
+            parameters=[
+                {'use_sim_time': True},  # 显式开启仿真时钟
+                join(get_package_share_directory('mpc_controller'), 'params', 'controller.yaml')
+            ],
             remappings=[
                 ('cmd',  cmd_topic),
                 ('odom', odom_topic),
                 ('traj', traj_topic),
             ],
-            parameters=[ join(get_package_share_directory('mpc_controller'), 'params', 'controller.yaml') ],
         ),
         
         # Include Gazebo simulation
@@ -68,7 +74,7 @@ def generate_launch_description():
         Node(
             package='rviz2',
             executable='rviz2',
-            arguments=['-d', 'src/uneven_planner/plan_manager/rviz/rviz.rviz'],
+            arguments=['-d', 'src/uneven_planner/src/uneven_planner/plan_manager/rviz/rviz.rviz'],
             output='screen'
         ),
     ])

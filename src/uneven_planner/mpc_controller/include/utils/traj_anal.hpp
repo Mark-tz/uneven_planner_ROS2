@@ -51,6 +51,7 @@ private:
     mpc_utils::MINCO_SE2 minco_anal;
     rclcpp::Time start_time;
     double traj_duration;
+    rclcpp::Clock::SharedPtr clock_;
 
 public:
     bool at_goal = false;
@@ -71,6 +72,10 @@ public:
     std::vector<std::vector<TrajPoint>> putn_trajs;
 
     TrajAnalyzer() {}
+
+    void setClock(rclcpp::Clock::SharedPtr clock) {
+        clock_ = clock;
+    }
 
     int CountLines(std::string filename)
     {
@@ -124,7 +129,7 @@ public:
 
     void setTraj(const mpc_controller::msg::SE2Traj::SharedPtr msg)
     {
-      start_time = rclcpp::Time(msg->start_time);
+      start_time = rclcpp::Time(msg->start_time, clock_->get_clock_type());
 
       Eigen::MatrixXd posP(2, msg->pos_pts.size() - 2);
       Eigen::MatrixXd angleP(1, msg->angle_pts.size() - 2);
@@ -172,8 +177,9 @@ public:
       initS(0, 2) = msg->init_a.z;
       tailS(0, 0) = msg->angle_pts.back().x;
       tailS(0, 1) = 0.0;
-      tailS(0, 1) = 0.0;
-      minco_anal.angle_anal.reset(initS, msg->angle_pts.size() - 1);
+      tailS(0, 2) = 0.0;
+
+      minco_anal.angle_anal.reset(initS, angleT.size());
       minco_anal.angle_anal.generate(angleP, tailS, angleT);
       minco_traj.angle_traj = minco_anal.angle_anal.getTraj();
 
@@ -402,7 +408,7 @@ public:
           traj_duration = putn_dt * putn_traj.size();
         }
 
-        start_time = rclcpp::Clock().now();
+        start_time = clock_->now();
         at_goal = false;
       }
     }
@@ -479,7 +485,7 @@ public:
       minco_traj.angle_traj = minco_anal.angle_anal.getTraj();
 
       traj_duration = minco_traj.pos_traj.getTotalDuration();
-      start_time = rclcpp::Clock().now();
+      start_time = clock_->now();
     }
 
     std::vector<TrajPoint> getRefPoints(const int T, double dt)
@@ -487,7 +493,7 @@ public:
       std::vector<TrajPoint> P;
       P.clear();
       TrajPoint tp;
-      rclcpp::Time time_now = rclcpp::Clock().now();
+      rclcpp::Time time_now = clock_->now();
       double t_cur = (time_now - start_time).seconds();
       int j=0;
 

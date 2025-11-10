@@ -50,6 +50,8 @@ void MPC::init(std::shared_ptr<rclcpp::Node> node)
     node_->get_parameter("mpc/matrix_r", R);
     node_->get_parameter("mpc/matrix_rd", Rd);
 
+    traj_analyzer.setClock(node_->get_clock());
+
     has_odom = false;
     receive_traj = false;
     max_comega = max_domega * dt;
@@ -131,6 +133,9 @@ void MPC::rcvTriggerCallBack(const geometry_msgs::msg::PoseStamped msg)
 void MPC::rcvTrajCallBack(mpc_controller::msg::SE2Traj::SharedPtr msg)
 {
     receive_traj = true;
+    traj_start_time_ = rclcpp::Time(msg->start_time, node_->get_clock()->get_clock_type());
+    traj_start_ns_ = static_cast<int64_t>(msg->start_time.sec) * 1000000000LL + static_cast<int64_t>(msg->start_time.nanosec);
+
     traj_analyzer.setTraj(msg);
 }
 
@@ -161,6 +166,27 @@ void MPC::cmdCallback()
 
     if (!has_odom || !receive_traj)
         return;
+
+    auto now = node_->get_clock()->now();
+    int64_t now_ns = now.nanoseconds();
+
+    if (receive_traj && traj_start_ns_ > 0) {
+        if (now.get_clock_type() != traj_start_time_.get_clock_type()) {
+            RCLCPP_ERROR(node_->get_logger(),
+                         "[MPC] Clock mismatch: now_type=%d traj_type=%d; using numeric ns diff for dt to avoid crash",
+                         static_cast<int>(now.get_clock_type()),
+                         static_cast<int>(traj_start_time_.get_clock_type()));
+        }
+        double dt = (now_ns - traj_start_ns_) * 1e-9;
+        if (dt < 0.0) {
+            RCLCPP_WARN(node_->get_logger(),
+                        "[MPC] dt negative (dt=%.6f). now_ns=%ld, start_ns=%ld; skip one cycle.",
+                        dt, now_ns, traj_start_ns_);
+            // 防御：跳过本周期，避免后续使用负时间
+            return;
+        }
+    }
+
 
     vector<TrajPoint> P = traj_analyzer.getRefPoints(T, dt);
     if (!P.empty())
@@ -224,6 +250,7 @@ void MPC::cmdCallback()
         smooth_yaw();
         getCmd();
     }
+
     pos_cmd_pub_->publish(cmd);
 }
 
@@ -323,7 +350,17 @@ void MPC::predictMotion(MPCState* b)
             Cx = Eigen::Vector3d::Zero();
             Cx(0) = -Ax(0, 2) * temp_i.theta;
             Cx(1) = -Ax(1, 2) * temp_i.theta;
-            xnext = Ax*Eigen::Vector3d(temp.x, temp.y, temp.theta) + Bx*Eigen::Vector2d(output(0, i-1), output(1, i-1)) + Cx;
+
+            if (Ax.rows() != 3 || Ax.cols() != 3) {
+                RCLCPP_ERROR(node_->get_logger(),
+                             "[MPC] Invalid Ax dims for Ax*Vector3d at DIFF i=%d: Ax(%ld,%ld)",
+                             i, Ax.rows(), Ax.cols());
+                continue;
+            }
+
+            xnext = Ax * Eigen::Vector3d(temp.x, temp.y, temp.theta)
+                  + Bx * Eigen::Vector2d(output(0, i-1), output(1, i-1))
+                  + Cx;
             temp.x = xnext(0);
             temp.y = xnext(1);
             temp.theta = xnext(2);
@@ -345,7 +382,17 @@ void MPC::predictMotion(MPCState* b)
             Cx(0) = -Ax(0, 2) * temp_i.theta;
             Cx(1) = -Ax(1, 2) * temp_i.theta;
             Cx(2) = -Bx(2, 1) * xbar[i-1].second.delta;
-            xnext = Ax*Eigen::Vector3d(temp.x, temp.y, temp.theta) + Bx*Eigen::Vector2d(output(0, i-1), output(1, i-1)) + Cx;
+
+            if (Ax.rows() != 3 || Ax.cols() != 3) {
+                RCLCPP_ERROR(node_->get_logger(),
+                             "[MPC] Invalid Ax dims for Ax*Vector3d at ACKER i=%d: Ax(%ld,%ld)",
+                             i, Ax.rows(), Ax.cols());
+                continue;
+            }
+
+            xnext = Ax * Eigen::Vector3d(temp.x, temp.y, temp.theta)
+                  + Bx * Eigen::Vector2d(output(0, i-1), output(1, i-1))
+                  + Cx;
             temp.x = xnext(0);
             temp.y = xnext(1);
             temp.theta = xnext(2);
@@ -360,7 +407,6 @@ void MPC::solveMPCDiff(void)
     const int dimx = 3 * (T - delay_num);
     const int dimu = 2 * (T - delay_num);
     const int nx = dimx + dimu;
-
     Eigen::SparseMatrix<double> hessian;
     Eigen::VectorXd gradient = Eigen::VectorXd::Zero(nx);
     Eigen::SparseMatrix<double> linearMatrix;
@@ -423,6 +469,20 @@ void MPC::solveMPCDiff(void)
     // equality constraints
     MPCNode temp = xbar[delay_num];
     getLinearModel(temp);
+
+    // 调试输出与尺寸保护
+    if (A.rows() != 3 || A.cols() != 3) {
+        RCLCPP_ERROR(node_->get_logger(),
+                     "[MPC] Invalid A dims for A*Vector3d at solveMPCDiff: A(%ld,%ld)",
+                     A.rows(), A.cols());
+        return;
+    }
+    if (C.size() != 3) {
+        RCLCPP_ERROR(node_->get_logger(),
+                     "[MPC] Invalid C size (expected 3) at solveMPCDiff: %ld", C.size());
+        return;
+    }
+
     int my = dimx;
     double b[my];
     const int nnzA = 11 * (T-delay_num) - 5;
@@ -431,7 +491,6 @@ void MPC::solveMPCDiff(void)
     double dA[nnzA];
     Eigen::Vector3d temp_vec(temp.first.x, temp.first.y, temp.first.theta);
     Eigen::Vector3d temp_b = A*temp_vec + C;
-    
     for (int i=0; i<dimx; i++)
     {
         irowA[i] = jcolA[i] = i;
@@ -566,17 +625,20 @@ void MPC::solveMPCDiff(void)
     if(!solver.data()->setUpperBound(upperBound)) return;
 
     // instantiate the solver
-    if(!solver.initSolver()) return;
-
-    // controller input and QPSolution vector
-    Eigen::VectorXd QPSolution;
+    if(!solver.initSolver()) {
+        RCLCPP_ERROR(node_->get_logger(), "[MPC] OSQP initSolver failed");
+        return;
+    }
 
     // solve the QP problem
-    if(solver.solveProblem() != OsqpEigen::ErrorExitFlag::NoError) return;
+    auto status = solver.solveProblem();
+    if(status != OsqpEigen::ErrorExitFlag::NoError) {
+        RCLCPP_ERROR(node_->get_logger(), "[MPC] OSQP solveProblem error, abort this cycle");
+        return;
+    }
 
     // get the controller input
-    QPSolution = solver.getSolution();
-    // ROS_INFO("Solution: v0=%f     omega0=%f", QPSolution[dimx], QPSolution[dimx+1]);
+    Eigen::VectorXd QPSolution = solver.getSolution();
     for (int i=0; i<delay_num; i++)
     {
         output(0, i) = output_buff[i][0];
@@ -594,6 +656,7 @@ void MPC::solveMPCAcker(void)
     const int dimx = 3 * (T - delay_num);
     const int dimu = 2 * (T - delay_num);
     const int nx = dimx + dimu;
+    RCLCPP_INFO(node_->get_logger(), "[MPC] solveMPCAcker dims: dimx=%d dimu=%d nx=%d", dimx, dimu, nx);
 
     Eigen::SparseMatrix<double> hessian;
     Eigen::VectorXd gradient = Eigen::VectorXd::Zero(nx);
@@ -807,17 +870,20 @@ void MPC::solveMPCAcker(void)
     if(!solver.data()->setUpperBound(upperBound)) return;
 
     // instantiate the solver
-    if(!solver.initSolver()) return;
-
-    // controller input and QPSolution vector
-    Eigen::VectorXd QPSolution;
+    if(!solver.initSolver()) {
+        RCLCPP_ERROR(node_->get_logger(), "[MPC] OSQP initSolver failed");
+        return;
+    }
 
     // solve the QP problem
-    if(solver.solveProblem() != OsqpEigen::ErrorExitFlag::NoError) return;
+    auto status = solver.solveProblem();
+    if(status != OsqpEigen::ErrorExitFlag::NoError) {
+        RCLCPP_ERROR(node_->get_logger(), "[MPC] OSQP solveProblem error, abort this cycle");
+        return;
+    }
 
     // get the controller input
-    QPSolution = solver.getSolution();
-    // ROS_INFO("Solution: v0=%f     omega0=%f", QPSolution[dimx], QPSolution[dimx+1]);
+    Eigen::VectorXd QPSolution = solver.getSolution();
     for (int i=0; i<delay_num; i++)
     {
         output(0, i) = output_buff[i][0];
@@ -834,6 +900,7 @@ void MPC::getCmd(void)
 {
     int iter;
     rclcpp::Time begin = node_->get_clock()->now();
+
     for (iter=0; iter<max_iter; iter++)
     {
         predictMotion();
@@ -845,9 +912,10 @@ void MPC::getCmd(void)
         double du = 0;
         for (int i=0; i<output.cols(); i++)
         {
-            du = du + fabs(output(0, i) - last_output(0, i))+ fabs(output(1, i) - last_output(1, i));
+            du += std::fabs(output(0, i) - last_output(0, i))
+                + std::fabs(output(1, i) - last_output(1, i));
         }
-        // break;
+
         if (du <= du_th || (node_->get_clock()->now()-begin).seconds()>0.01)
         {
             break;
@@ -855,16 +923,13 @@ void MPC::getCmd(void)
     }
     if (iter == max_iter)
     {
-        RCLCPP_WARN(node_->get_logger(), "MPC Iterative is max iter");
+        RCLCPP_WARN(node_->get_logger(), "[MPC] Iterative reached max_iter=%d", max_iter);
     }
 
     predictMotion(xopt);
     drawRefPath();
     drawPredictPath(xopt);
     
-    // cmd.longitude_speed = output(0, delay_num);
-    // cmd.angular_vel = output(1, delay_num);
-    // cmd.steer_angle = output(1, delay_num);
     cmd.linear.x = output(0, delay_num);
     cmd.angular.z = output(1, delay_num);
 
@@ -873,5 +938,4 @@ void MPC::getCmd(void)
         output_buff.erase(output_buff.begin());
         output_buff.push_back(Eigen::Vector2d(output(0, delay_num),output(1, delay_num)));
     }
-    
 }

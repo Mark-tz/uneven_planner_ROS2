@@ -2,7 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float64
+from std_msgs.msg import Float64, Float64MultiArray
 from geometry_msgs.msg import Twist
 import math
 import time
@@ -17,12 +17,13 @@ class CmdVel2Gazebo(Node):
         self.subscription = self.create_subscription(
             Twist, '/racebot/cmd_vel', self.callback, 1)
 
-        self.pub_steerL = self.create_publisher(Float64, '/racebot/left_front_steering_position_controller/command', 1)
-        self.pub_steerR = self.create_publisher(Float64, '/racebot/right_front_steering_position_controller/command', 1)
-        self.pub_rearL = self.create_publisher(Float64, '/racebot/left_rear_velocity_controller/command', 1)
-        self.pub_rearR = self.create_publisher(Float64, '/racebot/right_rear_velocity_controller/command', 1)
-        self.pub_frontR = self.create_publisher(Float64, '/racebot/right_front_velocity_controller/command', 1)
-        self.pub_frontL = self.create_publisher(Float64, '/racebot/left_front_velocity_controller/command', 1)
+        # 使用 Float64MultiArray 并且话题名改为 /commands（Group 控制器接口）
+        self.pub_steerL = self.create_publisher(Float64MultiArray, '/racebot/left_front_steering_position_controller/commands', 1)
+        self.pub_steerR = self.create_publisher(Float64MultiArray, '/racebot/right_front_steering_position_controller/commands', 1)
+        self.pub_rearL = self.create_publisher(Float64MultiArray, '/racebot/left_rear_velocity_controller/commands', 1)
+        self.pub_rearR = self.create_publisher(Float64MultiArray, '/racebot/right_rear_velocity_controller/commands', 1)
+        self.pub_frontR = self.create_publisher(Float64MultiArray, '/racebot/right_front_velocity_controller/commands', 1)
+        self.pub_frontL = self.create_publisher(Float64MultiArray, '/racebot/left_front_velocity_controller/commands', 1)
 
         # initial velocity and tire angle are 0
         self.x = 0.0
@@ -79,20 +80,14 @@ class CmdVel2Gazebo(Node):
         delta_last_msg_time = (current_time - self.lastMsg).nanoseconds / 1e9  # convert to seconds
         msgs_too_old = delta_last_msg_time > self.timeout
         if msgs_too_old:
-            self.x = 0.0
-            msgRear = Float64()
-            msgRear.data = float(self.x)
-            self.pub_rearL.publish(msgRear)
-            self.pub_rearR.publish(msgRear)
-            self.pub_frontR.publish(msgRear)
-            self.pub_frontL.publish(msgRear)
-            msgSteer = Float64()
-            msgSteer.data = 0.0
-            self.pub_steerL.publish(msgSteer)
-            self.pub_steerR.publish(msgSteer)
+            # 发布零命令（单元素数组）
+            msgRear = Float64MultiArray(); msgRear.data = [0.0]
+            self.pub_rearL.publish(msgRear); self.pub_rearR.publish(msgRear)
+            self.pub_frontR.publish(msgRear); self.pub_frontL.publish(msgRear)
+            msgSteer = Float64MultiArray(); msgSteer.data = [0.0]
+            self.pub_steerL.publish(msgSteer); self.pub_steerR.publish(msgSteer)
             return
 
-        # The self.z is the delta angle in radians of the imaginary front wheel of ackerman model.
         if self.z != 0:
             T_rear = self.T_rear
             T_front = self.T_front
@@ -104,54 +99,25 @@ class CmdVel2Gazebo(Node):
             rR_rear = r+(math.copysign(1,self.z)*(T_rear/2.0))
             rL_front = r-(math.copysign(1,self.z)*(T_front/2.0))
             rR_front = r+(math.copysign(1,self.z)*(T_front/2.0))
-            msgRearR = Float64()
-            # the right tire will go a little faster when we turn left (positive angle)
-            # amount is proportional to the radius of the outside/ideal
-            msgRearR.data = self.x*rR_rear/r
-            msgRearL = Float64()
-            # the left tire will go a little slower when we turn left (positive angle)
-            # amount is proportional to the radius of the inside/ideal
-            msgRearL.data = self.x*rL_rear/r
+            msgRearR = Float64MultiArray(); msgRearR.data = [self.x*rR_rear/r]
+            msgRearL = Float64MultiArray(); msgRearL.data = [self.x*rL_rear/r]
+            self.pub_rearL.publish(msgRearL); self.pub_rearR.publish(msgRearR)
 
-            self.pub_rearL.publish(msgRearL)
-            self.pub_rearR.publish(msgRearR)
+            msgSteerL = Float64MultiArray(); msgSteerL.data = [math.atan2(L,rL_front)*math.copysign(1,self.z)]
+            msgSteerR = Float64MultiArray(); msgSteerR.data = [math.atan2(L,rR_front)*math.copysign(1,self.z)]
+            self.pub_steerL.publish(msgSteerL); self.pub_steerR.publish(msgSteerR)
 
-            msgSteerL = Float64()
-            msgSteerR = Float64()
-            # the left tire's angle is solved directly from geometry
-            msgSteerL.data = math.atan2(L,rL_front)*math.copysign(1,self.z)
-            self.pub_steerL.publish(msgSteerL)
-    
-            # the right tire's angle is solved directly from geometry
-            msgSteerR.data = math.atan2(L,rR_front)*math.copysign(1,self.z)
-            self.pub_steerR.publish(msgSteerR)
-            msgFrontL = Float64()
-            msgFrontR = Float64()
-            # ckx todo: right below?
-            msgFrontL.data = math.sqrt(rR_front*rR_front + L*L)*self.x/r
-            msgFrontR.data = math.sqrt(rL_front*rL_front + L*L)*self.x/r
-            self.pub_frontL.publish(msgFrontL)
-            self.pub_frontR.publish(msgFrontR)
-            
-            
+            msgFrontL = Float64MultiArray(); msgFrontL.data = [math.sqrt(rR_front*rR_front + L*L)*self.x/r]
+            msgFrontR = Float64MultiArray(); msgFrontR.data = [math.sqrt(rL_front*rL_front + L*L)*self.x/r]
+            self.pub_frontL.publish(msgFrontL); self.pub_frontR.publish(msgFrontR)
         else:
-            # if we aren't turning
-            msgRear = Float64()
-            msgFront = Float64()
-            # msgRear.data = 0;
-            # msgFront.data = 0;
-            msgRear.data = float(self.x)
-            msgFront.data = float(self.x)
-            self.pub_frontR.publish(msgFront)
-            self.pub_frontL.publish(msgFront)
-            self.pub_rearL.publish(msgRear)
-            self.pub_rearR.publish(msgRear)
+            msgRear = Float64MultiArray(); msgRear.data = [float(self.x)]
+            msgFront = Float64MultiArray(); msgFront.data = [float(self.x)]
+            self.pub_frontR.publish(msgFront); self.pub_frontL.publish(msgFront)
+            self.pub_rearL.publish(msgRear); self.pub_rearR.publish(msgRear)
 
-            msgSteer = Float64()
-            msgSteer.data = float(self.z)
-
-            self.pub_steerL.publish(msgSteer)
-            self.pub_steerR.publish(msgSteer)
+            msgSteer = Float64MultiArray(); msgSteer.data = [float(self.z)]
+            self.pub_steerL.publish(msgSteer); self.pub_steerR.publish(msgSteer)
 
 
 if __name__ == '__main__':

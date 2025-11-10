@@ -1,21 +1,21 @@
 mpc_controller_node:
   ros__parameters:
-    du_threshold: 0.001
-    dt: 0.02
-    max_iter: 150
-    predict_steps: 30
-    delay_num: 0
-    max_omega: 24.0
-    max_domega: 10.0
-    max_speed: 0.8
-    min_speed: -0.8
-    max_accel: 10.0
-    test_mpc: false
-    bk_mode: false
-    matrix_q: [100.0, 100.0, 2.0]
-    matrix_r: [0.01, 0.01]
-    matrix_rd: [0.01, 100.0]
-    max_steer: 0.505
-    max_dsteer: 1.5
-    wheel_base: 0.26
-    model_type: 2
+    mpc/du_threshold: 0.001
+    mpc/dt: 0.02
+    mpc/max_iter: 150
+    mpc/predict_steps: 30
+    mpc/delay_num: 0
+    mpc/max_omega: 24.0
+    mpc/max_domega: 10.0
+    mpc/max_speed: 0.8
+    mpc/min_speed: -0.8
+    mpc/max_accel: 10.0
+    mpc/test_mpc: false
+    mpc/bk_mode: false
+    mpc/matrix_q: [100.0, 100.0, 2.0]
+    mpc/matrix_r: [0.01, 0.01]
+    mpc/matrix_rd: [0.01, 100.0]
+    mpc/max_steer: 0.505
+    mpc/max_dsteer: 1.5
+    mpc/wheel_base: 0.26
+    mpc/model_type: 2

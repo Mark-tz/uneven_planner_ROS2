@@ -4,8 +4,8 @@
 
 namespace uneven_planner
 {
-    void PlanManager::init(std::shared_ptr<rclcpp::Node> node)
-    {
+    void PlanManager::init(std::shared_ptr<rclcpp::Node> node){
+        node_ = node;
         // 参数
         node->declare_parameter<double>("manager/piece_len", piece_len);
         node->declare_parameter<double>("manager/mean_vel", mean_vel);
@@ -165,7 +165,7 @@ namespace uneven_planner
 
         // publish to mpc controller
         mpc_controller::msg::SE2Traj traj_msg;
-        traj_msg.start_time = rclcpp::Clock().now();
+        traj_msg.start_time = node_->get_clock()->now();
         traj_msg.init_v.x = 0.0;
         traj_msg.init_v.y = 0.0;
         traj_msg.init_v.z = 0.0;

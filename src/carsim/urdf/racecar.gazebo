@@ -11,8 +11,6 @@
     </plugin>
   </gazebo>
 
-  <!-- Joint State Publisher is now handled by joint_state_broadcaster in controller_config.yaml -->
-
   <!-- Gazebo references -->
   <gazebo reference="base_link">
     <mu1 value="${mu}"/>

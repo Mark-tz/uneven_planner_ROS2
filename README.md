@@ -19,7 +19,7 @@ sudo apt install build-essential cmake git
 sudo apt install libopenmpi-dev openmpi-bin
 
 # 安装 ROS2 Humble 相关包
-sudo apt install  ros-humble-robot-state-publisher* ros-humble-controller* ros-humble-velocity-controllers* ros-humble-effort-controllers ros-humble-position-controllers ros-humble-gazebo-ros2-control ros-humble-ompl ros-humble-tf2-geometry-msgs ros-humble-ackermann-msgs ros-humble-joy ros-humble-gazebo-ros ros-humble-gazebo-ros-pkgs
+sudo apt install  ros-humble-robot-state-publisher* ros-humble-controller* ros-humble-velocity-controllers* ros-humble-effort-controllers ros-humble-position-controllers ros-humble-gazebo-ros2-control ros-humble-ompl ros-humble-tf2-geometry-msgs ros-humble-ackermann-msgs ros-humble-joy ros-humble-gazebo-ros ros-humble-gazebo-ros-pkgs ros-humble-joint-state-broadcaster
 
 # 安装 PCL 和 OpenCV 开发包
 sudo apt install libpcl-dev libopencv-dev
