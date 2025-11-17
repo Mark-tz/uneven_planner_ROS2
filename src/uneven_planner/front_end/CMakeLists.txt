@@ -17,6 +17,7 @@ find_package(uneven_map REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(ompl REQUIRED)
+find_package(lightning REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 find_package(OpenCV REQUIRED)
@@ -101,6 +102,7 @@ ament_export_dependencies(
   visualization_msgs
   pcl_conversions
   ompl
+  lightning
 )
 
 ament_package()

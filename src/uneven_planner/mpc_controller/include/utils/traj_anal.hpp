@@ -579,4 +579,28 @@ public:
     }
    
     ~TrajAnalyzer() {}
+    TrajPoint getGoalPoint() const
+    {
+      TrajPoint tp;
+      if (traj_type == BK_UNEVEN)
+      {
+        Eigen::Vector2d po = minco_traj.pos_traj.getPos(traj_duration);
+        tp.x = po[0];
+        tp.y = po[1];
+        tp.theta = minco_traj.angle_traj.getPos(traj_duration)[0];
+      }
+      else if (traj_type == BK_TOWARDS)
+      {
+        Eigen::Vector3d po = towards_traj.getPos(traj_duration);
+        Eigen::Vector3d pr = towards_traj.getPos(traj_duration - 1e-3);
+        tp.x = po[0];
+        tp.y = po[1];
+        tp.theta = std::atan2(po[1]-pr[1], po[0]-pr[0]);
+      }
+      else if (traj_type == BK_PUTN)
+      {
+        tp = putn_traj.back();
+      }
+      return tp;
+    }
 };

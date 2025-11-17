@@ -189,6 +189,12 @@ void MPC::cmdCallback()
 
 
     vector<TrajPoint> P = traj_analyzer.getRefPoints(T, dt);
+    TrajPoint goal = traj_analyzer.getGoalPoint();
+    if (P.empty())
+    {
+        P.assign(T, goal);
+    }
+
     if (!P.empty())
     {
         Eigen::Vector2d err_vec(P[0].x - now_state.x, P[0].y - now_state.y);
@@ -198,7 +204,8 @@ void MPC::cmdCallback()
         err_pub->publish(err_msg);
     }
 
-    if (traj_analyzer.at_goal)
+    double pos_err = std::hypot(goal.x - now_state.x, goal.y - now_state.y);
+    if (pos_err <= tolerance)
     {
         // cmd.longitude_speed = 0.0;
         // cmd.angular_vel = 0.0;

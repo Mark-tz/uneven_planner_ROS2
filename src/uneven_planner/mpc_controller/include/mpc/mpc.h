@@ -179,7 +179,7 @@ private:
         int id = 0;
         double sc = 0.02;
         visualization_msgs::msg::Marker sphere, line_strip;
-        sphere.header.frame_id = line_strip.header.frame_id = "world";
+        sphere.header.frame_id = line_strip.header.frame_id = "map";
         sphere.header.stamp = line_strip.header.stamp = node_->get_clock()->now();
         sphere.type = visualization_msgs::msg::Marker::SPHERE_LIST;
         line_strip.type = visualization_msgs::msg::Marker::LINE_STRIP;
@@ -212,7 +212,7 @@ private:
         int id = 0;
         double sc = 0.02;
         visualization_msgs::msg::Marker sphere, line_strip;
-        sphere.header.frame_id = line_strip.header.frame_id = "world";
+        sphere.header.frame_id = line_strip.header.frame_id = "map";
         sphere.header.stamp = line_strip.header.stamp = node_->get_clock()->now();
         sphere.type = visualization_msgs::msg::Marker::SPHERE_LIST;
         line_strip.type = visualization_msgs::msg::Marker::LINE_STRIP;
@@ -245,7 +245,7 @@ private:
         int id = 0;
         double sc = 0.02;
         visualization_msgs::msg::Marker sphere, line_strip;
-        sphere.header.frame_id = line_strip.header.frame_id = "world";
+        sphere.header.frame_id = line_strip.header.frame_id = "map";
         sphere.header.stamp = line_strip.header.stamp = node_->get_clock()->now();
         sphere.type = visualization_msgs::msg::Marker::SPHERE_LIST;
         line_strip.type = visualization_msgs::msg::Marker::LINE_STRIP;

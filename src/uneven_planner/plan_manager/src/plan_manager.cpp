@@ -37,7 +37,7 @@ namespace uneven_planner
             std::bind(&PlanManager::rcvOdomCallBack, this, std::placeholders::_1)
         );
         target_sub = node->create_subscription<geometry_msgs::msg::PoseStamped>(
-            "/move_base_simple/goal", 10,
+            "goal", 10,
             std::bind(&PlanManager::rcvWpsCallBack, this, std::placeholders::_1)
         );
         
@@ -58,8 +58,26 @@ namespace uneven_planner
 
     void PlanManager::rcvWpsCallBack(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
     {
-        if (in_plan || !uneven_map->mapReady())
+        RCLCPP_INFO(node_->get_logger(), "goal received: frame=%s pos(%.3f,%.3f) q(%.3f,%.3f,%.3f,%.3f)",
+                    msg->header.frame_id.c_str(),
+                    msg->pose.position.x,
+                    msg->pose.position.y,
+                    msg->pose.orientation.x,
+                    msg->pose.orientation.y,
+                    msg->pose.orientation.z,
+                    msg->pose.orientation.w);
+        RCLCPP_INFO(node_->get_logger(), "planner state: in_plan=%d map_ready=%d odom(%.3f,%.3f,%.3f)",
+                    in_plan ? 1 : 0,
+                    uneven_map->mapReady() ? 1 : 0,
+                    odom_pos(0), odom_pos(1), odom_pos(2));
+        if (in_plan) {
+            RCLCPP_WARN(node_->get_logger(), "skip goal: planner busy");
             return;
+        }
+        if (!uneven_map->mapReady()) {
+            RCLCPP_WARN(node_->get_logger(), "skip goal: map not ready");
+            return;
+        }
 
         in_plan = true;
         
@@ -67,10 +85,13 @@ namespace uneven_planner
                                   msg->pose.position.y, \
                                   atan2(2.0*msg->pose.orientation.z*msg->pose.orientation.w, \
                                         2.0*pow(msg->pose.orientation.w, 2)-1.0)             );
+        RCLCPP_INFO(node_->get_logger(), "end_state: (%.3f,%.3f,%.3f)", end_state.x(), end_state.y(), end_state.z());
         
         std::vector<Eigen::Vector3d> init_path = kino_astar->plan(odom_pos, end_state);
+        RCLCPP_INFO(node_->get_logger(), "kino_astar plan result size=%zu", init_path.size());
         if (init_path.empty())
         {
+            RCLCPP_ERROR(node_->get_logger(), "planning failed: init_path empty");
             in_plan = false;
             return;
         }
@@ -199,6 +220,7 @@ namespace uneven_planner
         anglept.x = angle[0];
         traj_msg.angle_pts.push_back(anglept);
         traj_pub->publish(traj_msg);
+        RCLCPP_INFO(node_->get_logger(), "traj published: pos_pieces=%d yaw_pieces=%d", back_end_traj.pos_traj.getPieceNum(), back_end_traj.yaw_traj.getPieceNum());
         in_plan = false;
 
         return;

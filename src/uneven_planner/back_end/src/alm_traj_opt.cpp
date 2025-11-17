@@ -1120,7 +1120,7 @@ namespace uneven_planner
         int id = 0;
         double scale = 0.03;
         visualization_msgs::msg::Marker sphere, line_strip;
-        sphere.header.frame_id = line_strip.header.frame_id = "world";
+        sphere.header.frame_id = line_strip.header.frame_id = "map";
         sphere.header.stamp = line_strip.header.stamp = rclcpp::Clock().now();
         sphere.type = visualization_msgs::msg::Marker::SPHERE_LIST;
         line_strip.type = visualization_msgs::msg::Marker::LINE_STRIP;
@@ -1167,7 +1167,7 @@ namespace uneven_planner
     void ALMTrajOpt::visSE2Traj(const SE2Trajectory& traj)
     {
         nav_msgs::msg::Path back_end_path;
-        back_end_path.header.frame_id = "world";
+        back_end_path.header.frame_id = "map";
         back_end_path.header.stamp = rclcpp::Clock().now();
         
         geometry_msgs::msg::PoseStamped p;
@@ -1201,7 +1201,7 @@ namespace uneven_planner
     void ALMTrajOpt::visSE3Traj(const SE2Trajectory& traj)
     {
         nav_msgs::msg::Path back_end_path;
-        back_end_path.header.frame_id = "world";
+        back_end_path.header.frame_id = "map";
         back_end_path.header.stamp = rclcpp::Clock().now();
         
         geometry_msgs::msg::PoseStamped p;

@@ -126,6 +126,8 @@ namespace uneven_planner
             double wheel_base;
             double max_steer;
             double max_vel;
+            int model_type;
+            double max_omega;
             double tie_breaker = 1.0 + 1.0 / 10000;
             bool in_test;
 
@@ -222,29 +224,62 @@ namespace uneven_planner
                                         const Eigen::Vector2d &ctrl_input, const double& T)
     {
         double v = ctrl_input[0];
-        double delta = ctrl_input[1];
-        double s = v * T;
-        double y = s * tan(delta) / wheel_base;
-        
-        if(fabs(delta) > 1e-4)
+        if (model_type == 1)
         {
-            double r = s / y;
-            state1[0] = state0[0] + r*(sin(state0[2]+y)-sin(state0[2]));
-            state1[1] = state0[1] - r*(cos(state0[2]+y)-cos(state0[2]));
-            state1[2] = state0[2] + y;
+            double w = ctrl_input[1];
+            state1[0] = state0[0] + v * cos(state0[2]) * T;
+            state1[1] = state0[1] + v * sin(state0[2]) * T;
+            state1[2] = state0[2] + w * T;
             state1[2] = normalizeAngle(state1[2]);
         }
         else
         {
-            state1[0] = state0[0] + s * cos(state0[2]);
-            state1[1] = state0[1] + s * sin(state0[2]);
-            state1[2] = state0[2];
+            double delta = ctrl_input[1];
+            double s = v * T;
+            double y = s * tan(delta) / wheel_base;
+            if(fabs(delta) > 1e-4)
+            {
+                double r = s / y;
+                state1[0] = state0[0] + r*(sin(state0[2]+y)-sin(state0[2]));
+                state1[1] = state0[1] - r*(cos(state0[2]+y)-cos(state0[2]));
+                state1[2] = state0[2] + y;
+                state1[2] = normalizeAngle(state1[2]);
+            }
+            else
+            {
+                state1[0] = state0[0] + s * cos(state0[2]);
+                state1[1] = state0[1] + s * sin(state0[2]);
+                state1[2] = state0[2];
+            }
         }
     }
 
     inline void KinoAstar::asignShotTraj(const Eigen::Vector3d &state1, const Eigen::Vector3d &state2)
     {
         shot_path.clear();
+        if (model_type == 1)
+        {
+            double len = (state2.head(2) - state1.head(2)).norm();
+            double dyaw = dAngle(state2(2), state1(2));
+            double step = collision_interval;
+            int n = std::max(1, int(std::ceil(len / std::max(step, 1e-6))));
+            for (int i=0; i<=n; i++)
+            {
+                double s = double(i) / double(n);
+                Eigen::Vector2d pos = state1.head(2) + s * (state2.head(2) - state1.head(2));
+                double yaw = normalizeAngle(state1(2) + s * dyaw);
+                shot_path.push_back(Eigen::Vector3d(pos(0), pos(1), yaw));
+            }
+            for (size_t i=0; i<shot_path.size(); i++)
+            {
+                if (uneven_map->isOccupancyXY(shot_path[i])==1)
+                {
+                    shot_path.clear();
+                    break;
+                }
+            }
+            return;
+        }
         namespace ob = ompl::base;
         namespace og = ompl::geometric;
         ob::ScopedState<> from(shot_finder), to(shot_finder), s(shot_finder);
@@ -252,24 +287,20 @@ namespace uneven_planner
         to[0] = state2[0]; to[1] = state2[1]; to[2] = state2[2];
         std::vector<double> reals;
         double len = shot_finder->distance(from(), to());
-
         for (double l = 0.0; l <=len; l += collision_interval)
         {
             shot_finder->interpolate(from(), to(), l/len, s());
             reals = s.reals();
             shot_path.push_back(Eigen::Vector3d(reals[0], reals[1], reals[2]));        
         }
-
         for (size_t i=0; i<shot_path.size(); i++)
         {
-            // if (uneven_map->isOccupancy(shot_path[i])==1)
             if (uneven_map->isOccupancyXY(shot_path[i])==1)
             {
                 shot_path.clear();
                 break;
             }
         }
-
         return;
     }
 

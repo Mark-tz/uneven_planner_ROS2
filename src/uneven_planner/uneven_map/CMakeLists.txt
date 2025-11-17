@@ -7,11 +7,13 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(uneven_planner_interfaces REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
+find_package(lightning REQUIRED)
 
 # 添加 MPI 支持以解决 VTK 依赖问题
 find_package(MPI QUIET)
@@ -43,12 +45,12 @@ target_include_directories(uneven_map
 )
 
 ament_target_dependencies(uneven_map
-  rclcpp sensor_msgs std_msgs nav_msgs visualization_msgs pcl_conversions
+  rclcpp sensor_msgs std_msgs nav_msgs visualization_msgs pcl_conversions lightning uneven_planner_interfaces
 )
 
 add_executable(uneven_map_node src/uneven_map_node.cpp)
 ament_target_dependencies(uneven_map_node
-  rclcpp sensor_msgs std_msgs nav_msgs visualization_msgs pcl_conversions
+  rclcpp sensor_msgs std_msgs nav_msgs visualization_msgs pcl_conversions lightning
 )
 
 # 链接库
@@ -87,6 +89,7 @@ install(TARGETS uneven_map_node
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY maps/ DESTINATION share/${PROJECT_NAME}/maps)
 install(DIRECTORY rviz/ DESTINATION share/${PROJECT_NAME}/rviz)
+install(DIRECTORY launch/ DESTINATION share/${PROJECT_NAME}/launch)
 
 ament_export_include_directories(include)
 ament_export_libraries(uneven_map)
@@ -98,6 +101,7 @@ ament_export_dependencies(
   nav_msgs
   visualization_msgs
   pcl_conversions
+  uneven_planner_interfaces
   Eigen3
   PCL
   OpenCV

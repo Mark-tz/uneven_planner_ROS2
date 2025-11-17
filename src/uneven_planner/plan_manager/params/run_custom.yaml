@@ -3,52 +3,55 @@ manager_node:
     uneven_map/iter_num: 2
     uneven_map/map_size_x: 10.0
     uneven_map/map_size_y: 10.0
-    uneven_map/ellipsoid_x: 0.2
+    uneven_map/ellipsoid_x: 0.1
     uneven_map/ellipsoid_y: 0.1
-    uneven_map/ellipsoid_z: 0.1
-    uneven_map/xy_resolution: 0.05
+    uneven_map/ellipsoid_z: 0.05
+    uneven_map/xy_resolution: 0.03
     uneven_map/yaw_resolution: 0.1
     uneven_map/min_cnormal: 0.8
     uneven_map/max_rho: 0.05
     uneven_map/gravity: 9.81
     uneven_map/mass: 1.0
-    uneven_map/z_min: -0.05
-    uneven_map/z_max: 1.2
-    uneven_map/map_pcd: "install/uneven_map/share/uneven_map/maps/desert.pcd"
-    uneven_map/map_file: "install/uneven_map/share/uneven_map/maps/desert.map"
+    uneven_map/z_min: -0.3
+    uneven_map/z_max: 0.3
+    uneven_map/init_knn: 7
+    uneven_map/init_xy_max: 1.0
+    uneven_map/global_voxel_res: 0.03
 
     kino_astar/yaw_resolution: 3.15
     kino_astar/lambda_heu: 1.0
-    kino_astar/weight_r2: 1.0
-    kino_astar/weight_so2: 0.5
+    kino_astar/weight_r2: 0.1
+    kino_astar/weight_so2: 0.1
     kino_astar/weight_v_change: 0.0
     kino_astar/weight_delta_change: 0.0
     kino_astar/weight_sigma: 10.0
     kino_astar/time_interval: 0.3
-    kino_astar/collision_interval: 0.06
-    kino_astar/oneshot_range: 1.0
+    kino_astar/collision_interval: 0.03
+    kino_astar/oneshot_range: 0.5
     kino_astar/wheel_base: 0.26
     kino_astar/max_steer: 0.5
-    kino_astar/max_vel: 0.5
+    kino_astar/max_vel: 0.35
+    kino_astar/model_type: 1
+    kino_astar/max_omega: 3.0
     kino_astar/in_test: false
 
     alm_traj_opt/rho_T: 100000.0
     alm_traj_opt/rho_ter: 10.0
     alm_traj_opt/max_vel: 0.5
     alm_traj_opt/max_acc_lon: 5.0
-    alm_traj_opt/max_acc_lat: 10.0
-    alm_traj_opt/max_kap: 2.1
+    alm_traj_opt/max_acc_lat: 12.0
+    alm_traj_opt/max_kap: 5.0
     alm_traj_opt/min_cxi: 0.8
     alm_traj_opt/max_sig: 0.05
-    alm_traj_opt/use_scaling: true
+    alm_traj_opt/use_scaling: false
     alm_traj_opt/rho: 1.0
     alm_traj_opt/beta: 1000.0
     alm_traj_opt/gamma: 1.0
-    alm_traj_opt/epsilon_con: 0.001
-    alm_traj_opt/max_iter: 10.0
-    alm_traj_opt/g_epsilon: 1.0e-03
+    alm_traj_opt/epsilon_con: 0.003
+    alm_traj_opt/max_iter: 5.0
+    alm_traj_opt/g_epsilon: 5.0e-03
     alm_traj_opt/min_step: 1.0e-32
-    alm_traj_opt/inner_max_iter: 10000.0
+    alm_traj_opt/inner_max_iter: 2000.0
     alm_traj_opt/delta: 1.0e-4
     alm_traj_opt/mem_size: 256
     alm_traj_opt/past: 3
@@ -56,10 +59,10 @@ manager_node:
     alm_traj_opt/in_test: false
     alm_traj_opt/in_debug: false
 
-    manager/piece_len: 0.3
+    manager/piece_len: 0.5
     manager/mean_vel: 0.5
     manager/init_time_times: 1.2
-    manager/yaw_piece_times: 2.0
+    manager/yaw_piece_times: 1.2
     manager/init_sig_vel: 0.05
     manager/bk_dir: "xxx"
 
@@ -83,4 +86,4 @@ mpc:
     max_steer: 0.505
     max_dsteer: 1.5
     wheel_base: 0.26
-    model_type: 2
+    model_type: 1

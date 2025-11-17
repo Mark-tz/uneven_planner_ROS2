@@ -1,5 +1,12 @@
 // method UnevenMap::init()
 #include "uneven_map/uneven_map.h"
+#include <chrono>
+#include <functional>
+#include <memory>
+#include <string>
+
+#include "lightning/srv/save_map.hpp"
+
 
 namespace uneven_planner
 {
@@ -71,14 +78,14 @@ namespace uneven_planner
         return;
     }
 
+
+
     bool UnevenMap::init(std::shared_ptr<rclcpp::Node> node)
     {
         // 保存 node 指针用于日志
         node_ = node;
         
         // 参数声明和读取
-        node->declare_parameter<std::string>("uneven_map/map_pcd", "");
-        node->declare_parameter<std::string>("uneven_map/map_file", "");
         node->declare_parameter<int>("uneven_map/iter_num", 10);
         node->declare_parameter<double>("uneven_map/ellipsoid_x", 0.5);
         node->declare_parameter<double>("uneven_map/ellipsoid_y", 0.5);
@@ -91,9 +98,12 @@ namespace uneven_planner
         node->declare_parameter<double>("uneven_map/mass", 1.0);
         node->declare_parameter<double>("uneven_map/map_size_x", 20.0);
         node->declare_parameter<double>("uneven_map/map_size_y", 20.0);
-        
-        node->get_parameter("uneven_map/map_pcd", pcd_file);
-        node->get_parameter("uneven_map/map_file", map_file);
+        node->declare_parameter<double>("uneven_map/z_min", -0.01);
+        node->declare_parameter<double>("uneven_map/z_max", 5.0);
+        node->declare_parameter<int>("uneven_map/init_knn", 7);
+        node->declare_parameter<double>("uneven_map/init_xy_max", 0.5);
+        node->declare_parameter<double>("uneven_map/global_voxel_res", 0.1);
+
         node->get_parameter("uneven_map/iter_num", iter_num);
         node->get_parameter("uneven_map/ellipsoid_x", ellipsoid_x);
         node->get_parameter("uneven_map/ellipsoid_y", ellipsoid_y);
@@ -104,6 +114,11 @@ namespace uneven_planner
         node->get_parameter("uneven_map/max_rho", max_rho);
         node->get_parameter("uneven_map/gravity", gravity);
         node->get_parameter("uneven_map/mass", mass);
+        node->get_parameter("uneven_map/z_min", z_min);
+        node->get_parameter("uneven_map/z_max", z_max);
+        node->get_parameter("uneven_map/init_knn", init_knn);
+        node->get_parameter("uneven_map/init_xy_max", init_xy_max);
+        node->get_parameter("uneven_map/global_voxel_res", global_voxel_res);
         
         double map_size_x, map_size_y;
         node->get_parameter("uneven_map/map_size_x", map_size_x);
@@ -116,7 +131,7 @@ namespace uneven_planner
         so2_test_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("/so2_map", 10);
     
         using namespace std::chrono_literals;
-        vis_timer = node->create_wall_timer(1s, std::bind(&UnevenMap::visCallback, this));
+        vis_timer_ = node->create_wall_timer(1s, std::bind(&UnevenMap::updateVisualizations, this));
         
         // origin and boundary
         min_boundary = -map_size / 2.0;
@@ -144,29 +159,70 @@ namespace uneven_planner
         occ_r2_buffer = vector<char>(getXYNum(), 0);
         world_cloud.reset(new pcl::PointCloud<pcl::PointXYZ>());
         world_cloud_plane.reset(new pcl::PointCloud<pcl::PointXY>());
-        pcl::PointCloud<pcl::PointXY>::Ptr world_cloud_temp;
 
-        // world cloud process
+        // Get global map service client
+        getmap_client_ = node_->create_client<lightning::srv::GetGlobalMap>("/lightning/get_global_map");
+        while (!getmap_client_->wait_for_service(1s)) {
+            if (!rclcpp::ok()) {
+                RCLCPP_ERROR(node_->get_logger(), "Interrupted while waiting for the service. Exiting.");
+                return false;
+            }
+            RCLCPP_INFO(node_->get_logger(), "service not available, waiting again...");
+        }
+
+        auto request = std::make_shared<lightning::srv::GetGlobalMap::Request>();
+        request->res = static_cast<float>(global_voxel_res);
+        getmap_client_->async_send_request(request, 
+            [this](rclcpp::Client<lightning::srv::GetGlobalMap>::SharedFuture future) {
+                auto result = future.get();
+                if (result->success) {
+                    RCLCPP_INFO(node_->get_logger(), "Initial map received successfully.");
+                    generateMapFromCloud(std::make_shared<sensor_msgs::msg::PointCloud2>(result->map));
+                } else {
+                    RCLCPP_ERROR(node_->get_logger(), "Failed to get initial map.");
+                }
+            });
+
+        // Global map subscriber
+        global_map_sub_ = node->create_subscription<sensor_msgs::msg::PointCloud2>(
+            "/map_global", 10, std::bind(&UnevenMap::globalMapCallback, this, std::placeholders::_1));
+
+        // Periodically request global map to refresh
+        map_timer_ = node->create_wall_timer(2s, [this]() {
+            auto req = std::make_shared<lightning::srv::GetGlobalMap::Request>();
+            req->res = static_cast<float>(global_voxel_res);
+            getmap_client_->async_send_request(req, [this](rclcpp::Client<lightning::srv::GetGlobalMap>::SharedFuture future) {
+                auto res = future.get();
+                if (res->success) {
+                    generateMapFromCloud(std::make_shared<sensor_msgs::msg::PointCloud2>(res->map));
+                }
+            });
+        });
+
+        return true;
+    }
+
+
+
+
+    void UnevenMap::generateMapFromCloud(const sensor_msgs::msg::PointCloud2::SharedPtr cloud_msg)
+    {
         pcl::PointCloud<pcl::PointXYZ> cloudMapOrigin;
-        pcl::PointCloud<pcl::PointXYZ> cloudMapClipper;
-
-        pcl::PCDReader reader;
-        reader.read<pcl::PointXYZ>(pcd_file, cloudMapOrigin);
+        pcl::fromROSMsg(*cloud_msg, cloudMapOrigin);
 
         pcl::CropBox<pcl::PointXYZ> clipper;
-        clipper.setMin(Eigen::Vector4f(-10.0, -10.0, -0.01, 1.0));
-        clipper.setMax(Eigen::Vector4f(10.0, 10.0, 5.0, 1.0));
+        clipper.setMin(Eigen::Vector4f(-10.0, -10.0, z_min, 1.0));
+        clipper.setMax(Eigen::Vector4f(10.0, 10.0, z_max, 1.0));
         clipper.setInputCloud(cloudMapOrigin.makeShared());
-        clipper.filter(cloudMapClipper);
-        cloudMapOrigin.clear();
+        clipper.filter(*world_cloud);
 
         pcl::VoxelGrid<pcl::PointXYZ> dwzFilter;
         dwzFilter.setLeafSize(0.01, 0.01, 0.01);
-        dwzFilter.setInputCloud(cloudMapClipper.makeShared());
+        dwzFilter.setInputCloud(world_cloud);
         dwzFilter.filter(*world_cloud);
-        cloudMapClipper.clear();
 
-        for (size_t i=0; i<world_cloud->points.size(); i++)
+        world_cloud_plane->points.clear();
+        for (size_t i = 0; i < world_cloud->points.size(); i++)
         {
             pcl::PointXY p;
             p.x = world_cloud->points[i].x;
@@ -176,34 +232,127 @@ namespace uneven_planner
         world_cloud->width = world_cloud->points.size();
         world_cloud->height = 1;
         world_cloud->is_dense = true;
-        world_cloud->header.frame_id = "world";
+        world_cloud->header.frame_id = "map";
         world_cloud_plane->width = world_cloud_plane->points.size();
         world_cloud_plane->height = 1;
         world_cloud_plane->is_dense = true;
-        world_cloud_plane->header.frame_id = "world";
+        world_cloud_plane->header.frame_id = "map";
         kd_tree.setInputCloud(world_cloud);
         kd_tree_plane.setInputCloud(world_cloud_plane);
         pcl::toROSMsg(*world_cloud, origin_cloud_msg);
 
         // construct map: SO(2) --> RXS2
-        if (!constructMapInput())
-            constructMap();
-        
+        const double box_r = max(max(ellipsoid_x, ellipsoid_y), ellipsoid_z);
+        const Eigen::Vector3d ellipsoid_vecinv(1.0 / ellipsoid_x, 1.0 / ellipsoid_y, 1.0 / ellipsoid_z);
+
+        for (int x = 0; x < voxel_num[0]; x++)
+            for (int y = 0; y < voxel_num[1]; y++)
+                for (int yaw = 0; yaw < voxel_num[2]; yaw++)
+                    for (int iter = 0; iter < iter_num; iter++)
+                    {
+                        Eigen::Vector3d map_pos;
+                        RXS2 map_rs2 = map_buffer[toAddress(x, y, yaw)];
+                        double map_c = c_buffer[toAddress(x, y, yaw)];
+                        indexToPos(Eigen::Vector3i(x, y, yaw), map_pos);
+
+                        Eigen::Vector3d xyaw(cos(map_pos(2)), sin(map_pos(2)), 0.0);
+                        Eigen::Vector3d zb(map_rs2.zb(0), map_rs2.zb(1), map_c);
+                        Eigen::Vector3d yb = zb.cross(xyaw).normalized();
+                        Eigen::Vector3d xb = yb.cross(zb);
+                        Eigen::Matrix3d RT;
+                        RT.row(0) = xb;
+                        RT.row(1) = yb;
+                        RT.row(2) = zb;
+                        Eigen::Vector3d world_pos(map_pos(0), map_pos(1), map_rs2.z);
+                        world_pos.head(2) += xb.head(2) * 0.12;
+
+                        vector<int> Idxs;
+                        vector<float> SquaredDists;
+                        if (iter == 0)
+                        {
+                            pcl::PointXY pxy;
+                            pxy.x = world_pos(0);
+                            pxy.y = world_pos(1);
+                            std::vector<int> idxs_knn;
+                            std::vector<float> dists_knn;
+                            if (kd_tree_plane.nearestKSearch(pxy, init_knn, idxs_knn, dists_knn) > 0) {
+                                double min_z = std::numeric_limits<double>::infinity();
+                                double min_xy = std::numeric_limits<double>::infinity();
+                                for (size_t k = 0; k < idxs_knn.size(); ++k) {
+                                    int ii = idxs_knn[k];
+                                    const auto &pt2 = world_cloud_plane->points[ii];
+                                    double dx = pt2.x - world_pos(0);
+                                    double dy = pt2.y - world_pos(1);
+                                    double dxy = std::sqrt(dx*dx + dy*dy);
+                                    if (dxy < min_xy) min_xy = dxy;
+                                    min_z = std::min(min_z, static_cast<double>(world_cloud->points[ii].z));
+                                }
+                                if (min_xy <= init_xy_max && std::isfinite(min_z)) {
+                                    world_pos(2) = min_z;
+                                } else {
+                                    world_pos(2) = 0.0;
+                                }
+                            } else {
+                                world_pos(2) = 0.0;
+                            }
+                        }
+
+                        vector<Eigen::Vector3d> points;
+                        pcl::PointXYZ pt;
+                        pt.x = world_pos(0);
+                        pt.y = world_pos(1);
+                        pt.z = world_pos(2);
+                        if (kd_tree.radiusSearch(pt, box_r, Idxs, SquaredDists) > 0)
+                        {
+                            for (size_t i = 0; i < Idxs.size(); i++)
+                            {
+                                Eigen::Vector3d temp_pos(world_cloud->points[Idxs[i]].x, \
+                                                         world_cloud->points[Idxs[i]].y, \
+                                                         world_cloud->points[Idxs[i]].z);
+                                Eigen::Vector3d temp_subtract = temp_pos - world_pos;
+                                Eigen::Vector3d temp_inrob = RT * temp_subtract;
+                                if (ellipsoid_vecinv.cwiseProduct(temp_inrob).squaredNorm() < 1.0)
+                                {
+                                    points.emplace_back(temp_pos);
+                                }
+                            }
+                        }
+                        if (points.empty())
+                        {
+                            RXS2 rxs2_z;
+                            rxs2_z.z = world_pos(2);
+                            map_buffer[toAddress(x, y, yaw)] = rxs2_z;
+                            c_buffer[toAddress(x, y, yaw)] = map_buffer[toAddress(x, y, yaw)].getC();
+                        }
+                        else
+                        {
+                            map_buffer[toAddress(x, y, yaw)] = UnevenMap::filter(map_pos, points);
+                            c_buffer[toAddress(x, y, yaw)] = map_buffer[toAddress(x, y, yaw)].getC();
+                        }
+                    }
+
         // occ map
-        for (int x=0; x<voxel_num[0]; x++)
-            for (int y=0; y<voxel_num[1]; y++)
-                for (int yaw=0; yaw<voxel_num[2]; yaw++)
+        for (int x = 0; x < voxel_num[0]; x++)
+            for (int y = 0; y < voxel_num[1]; y++)
+                for (int yaw = 0; yaw < voxel_num[2]; yaw++)
                 {
                     if (c_buffer[toAddress(x, y, yaw)] < min_cnormal || map_buffer[toAddress(x, y, yaw)].sigma > max_rho)
                     {
                         occ_buffer[toAddress(x, y, yaw)] = 1;
-                        occ_r2_buffer[x*voxel_num(1)+y] = 1;
+                        occ_r2_buffer[x * voxel_num(1) + y] = 1;
                     }
                 }
+        updateVisualizations();
+        map_ready = true;
+    }
+
+    void UnevenMap::updateVisualizations()
+    {
+        if (!map_ready) return;
 
         //  to pcl and marker msg
         zb_msg.type = visualization_msgs::msg::Marker::LINE_LIST;
-        zb_msg.header.frame_id = "world";
+        zb_msg.header.frame_id = "map";
         zb_msg.pose.orientation.w = 1.0;
         zb_msg.scale.x = 0.006;
         zb_msg.color.a = 0.6;
@@ -211,12 +360,44 @@ namespace uneven_planner
         
         pcl::PointCloud<pcl::PointXYZI> grid_map_filtered;
         pcl::PointXYZI pt_filtered;
+        double sigma_sum = 0.0;
+        int published_cnt = 0;
         int yaw = floor(M_2_PI*yaw_resolution_inv);
         for (int x=0; x<voxel_num[0]; x++)
             for (int y=0; y<voxel_num[1]; y++)
             {
-                if (occ_buffer[toAddress(x, y, yaw)]==1)
+                if (occ_buffer[toAddress(x, y, yaw)]==1) {
+                    // publish a special marker for tilt-occupied cells
+                    double c = c_buffer[toAddress(x, y, yaw)];
+                    bool tilt_occ = (c < min_cnormal);
+                    if (tilt_occ) {
+                        Eigen::Vector3d filtered_p;
+                        indexToPos(Eigen::Vector3i(x, y, yaw), filtered_p);
+                        geometry_msgs::msg::Point p_occ;
+                        p_occ.x = filtered_p.x();
+                        p_occ.y = filtered_p.y();
+                        p_occ.z = filtered_p.z();
+                        // encode special value via an auxiliary marker list
+                        // here we piggyback on so2_point to render small red dots for tilt occupancy
+                        geometry_msgs::msg::Point occ_dot = p_occ;
+                        // store into marker array's points via zb_msg as small tilt dots
+                        // here reuse zb_msg with tiny scale and bright color
+                        visualization_msgs::msg::Marker tilt_dot;
+                        tilt_dot.id = 2;
+                        tilt_dot.type = visualization_msgs::msg::Marker::POINTS;
+                        tilt_dot.header.frame_id = "map";
+                        tilt_dot.pose.orientation.w = 1.0;
+                        tilt_dot.scale.x = 0.01;
+                        tilt_dot.scale.y = 0.01;
+                        tilt_dot.color.a = 1.0;
+                        tilt_dot.color.r = 1.0;
+                        tilt_dot.color.g = 0.0;
+                        tilt_dot.color.b = 0.0;
+                        tilt_dot.points.emplace_back(occ_dot);
+                        so2_test_msg.markers.emplace_back(tilt_dot);
+                    }
                     continue;
+                }
                 Eigen::Vector3d filtered_p;
                 RXS2 rs2 = map_buffer[toAddress(x, y, yaw)];
                 double c = c_buffer[toAddress(x, y, yaw)];
@@ -226,6 +407,8 @@ namespace uneven_planner
                 p1.z = pt_filtered.z = rs2.z;
                 pt_filtered.intensity = rs2.sigma;
                 grid_map_filtered.emplace_back(pt_filtered);
+                sigma_sum += rs2.sigma;
+                published_cnt++;
 
                 p2.x = p1.x + 1.5 * xy_resolution * rs2.zb.x();
                 p2.y = p1.y + 1.5 * xy_resolution * rs2.zb.y();
@@ -239,21 +422,29 @@ namespace uneven_planner
         grid_map_filtered.width = grid_map_filtered.points.size();
         grid_map_filtered.height = 1;
         grid_map_filtered.is_dense = true;
-        grid_map_filtered.header.frame_id = "world";
+        grid_map_filtered.header.frame_id = "map";
         pcl::toROSMsg(grid_map_filtered, filtered_cloud_msg);
+
+        int occ_xy = 0;
+        for (int i = 0; i < getXYNum(); ++i) {
+            occ_xy += int(occ_r2_buffer[i]);
+        }
+        double avg_sigma = published_cnt > 0 ? sigma_sum / published_cnt : 0.0;
+        RCLCPP_INFO(node_->get_logger(), "uneven_map: world=%zu filtered=%zu occ_xy=%d/%d avg_sigma=%.3f z_clip=[%.3f,%.3f]",
+                    world_cloud->points.size(), grid_map_filtered.points.size(), occ_xy, getXYNum(), avg_sigma, z_min, z_max);
 
         // so2_test_msg
         visualization_msgs::msg::Marker so2_line;
         visualization_msgs::msg::Marker so2_point;
         so2_line.id = 0;
         so2_line.type = visualization_msgs::msg::Marker::LINE_LIST;
-        so2_line.header.frame_id = "world";
+        so2_line.header.frame_id = "map";
         so2_line.pose.orientation.w = 1.0;
         so2_line.scale.x = 0.01;
         so2_line.color.a = 0.6;
         so2_point.id = 1;
         so2_point.type = visualization_msgs::msg::Marker::POINTS;
-        so2_point.header.frame_id = "world";
+        so2_point.header.frame_id = "map";
         so2_point.pose.orientation.w = 1.0;
         so2_point.scale.x = 0.015;
         so2_point.scale.y = 0.015;
@@ -262,192 +453,35 @@ namespace uneven_planner
         geometry_msgs::msg::Point p0;
         double r_res = 0.8;
         int ri_res = floor(r_res * xy_resolution_inv);
+        int yaw_draw = floor(M_2_PI*yaw_resolution_inv);
         for (int x=0; x<voxel_num[0]; x+=ri_res)
             for (int y=0; y<voxel_num[1]; y+=ri_res)
-                for (int yaw=0; yaw<voxel_num[2]; yaw++)
-                {
-                    Eigen::Vector3d filtered_p;
-                    RXS2 rs2 = map_buffer[toAddress(x, y, yaw)];
-                    indexToPos(Eigen::Vector3i(x, y, yaw), filtered_p);
-                    p1.x = p0.x = filtered_p.x() + r_res / 2.5 * cos(filtered_p.z());
-                    p1.y = p0.y = filtered_p.y() + r_res / 2.5 * sin(filtered_p.z());
-                    Eigen::Vector3d zb(rs2.zb(0), rs2.zb(1), c_buffer[toAddress(x, y, yaw)]);
-                    Eigen::Vector3d xyaw(cos(filtered_p.z()), sin(filtered_p.z()), 0.0);
-                    Eigen::Vector3d yb = zb.cross(xyaw).normalized();
-                    Eigen::Vector3d xb = yb.cross(zb);
-                    p1.z = p0.z = rs2.z - xb(2) * 0.12;
-                    so2_point.points.emplace_back(p0);
+            {
+                Eigen::Vector3d filtered_p;
+                RXS2 rs2 = map_buffer[toAddress(x, y, yaw_draw)];
+                indexToPos(Eigen::Vector3i(x, y, yaw_draw), filtered_p);
+                p1.x = p0.x = filtered_p.x();
+                p1.y = p0.y = filtered_p.y();
+                p1.z = p0.z = rs2.z;
+                so2_point.points.emplace_back(p0);
 
-                    p2.x = p1.x + 1.5 * xy_resolution * rs2.zb.x();
-                    p2.y = p1.y + 1.5 * xy_resolution * rs2.zb.y();
-                    p2.z = p1.z + 1.5 * xy_resolution * c_buffer[toAddress(x, y, yaw)];
-                    so2_line.points.emplace_back(p1);
-                    so2_line.points.emplace_back(p2);
-                }
+                p2.x = p1.x + 1.5 * xy_resolution * rs2.zb.x();
+                p2.y = p1.y + 1.5 * xy_resolution * rs2.zb.y();
+                p2.z = p1.z + 1.5 * xy_resolution * c_buffer[toAddress(x, y, yaw_draw)];
+                so2_line.points.emplace_back(p1);
+                so2_line.points.emplace_back(p2);
+            }
         so2_test_msg.markers.emplace_back(so2_line);
         so2_test_msg.markers.emplace_back(so2_point);
 
-        map_ready = true;
-        return true;
-    }
-
-    bool UnevenMap::constructMapInput()
-    {
-        ifstream pp(map_file);
-        if (!pp.good())
-        {
-            RCLCPP_WARN(node_->get_logger(), "map file is empty, begin construct it.");
-            return false;
-        }
-        ifstream fp;
-        fp.open(map_file, ios::in);
-        string idata, word;
-        istringstream sin;
-        vector<string> words;
-        while (getline(fp, idata))
-        {
-            sin.clear();
-            sin.str(idata);
-            words.clear();
-            while (getline(sin, word, ','))
-            {
-                words.emplace_back(word);
-            }
-
-            int x = atoi(words[0].c_str());
-            int y = atoi(words[1].c_str());
-            int yaw = atoi(words[2].c_str());
-            double z = stold(words[3]);
-            double sigma = stold(words[4]);
-            double zba = stold(words[5]);
-            double zbb = stold(words[6]);
-            if (isInMap(Eigen::Vector3i(x, y, yaw)))
-            {
-                map_buffer[toAddress(x, y, yaw)] = RXS2(z, sigma, Eigen::Vector2d(zba, zbb));
-                if (map_buffer[toAddress(x, y, yaw)].sigma < sigma)
-                {
-                    map_buffer[toAddress(x, y, yaw)].sigma = sigma;
-                }
-                c_buffer[toAddress(x, y, yaw)] = sqrt(1.0-zba*zba-zbb*zbb);
-            }
-        }
-        fp.close();
-
-        RCLCPP_INFO(node_->get_logger(), "map: SO(2) --> RXS2 done.");
-
-        return true;
-    }
-
-    bool UnevenMap::constructMap()
-    {
-        const double box_r = max(max(ellipsoid_x, ellipsoid_y), ellipsoid_z);
-        const Eigen::Vector3d ellipsoid_vecinv(1.0 / ellipsoid_x, 1.0 / ellipsoid_y, 1.0 / ellipsoid_z);
-        int cnt=0;
-
-        for (int x=0; x<voxel_num[0]; x++)
-            for (int y=0; y<voxel_num[1]; y++)
-                for (int yaw=0; yaw<voxel_num[2]; yaw++)
-                    for (int iter=0; iter<iter_num; iter++)
-                    {
-                        Eigen::Vector3d map_pos;
-                        RXS2 map_rs2 = map_buffer[toAddress(x, y, yaw)];
-                        double map_c = c_buffer[toAddress(x, y, yaw)];
-                        indexToPos(Eigen::Vector3i(x, y, yaw), map_pos);
-                        
-                        Eigen::Vector3d xyaw(cos(map_pos(2)), sin(map_pos(2)), 0.0);
-                        Eigen::Vector3d zb(map_rs2.zb(0), map_rs2.zb(1), map_c);
-                        Eigen::Vector3d yb = zb.cross(xyaw).normalized();
-                        Eigen::Vector3d xb = yb.cross(zb);
-                        Eigen::Matrix3d RT;
-                        RT.row(0) = xb;
-                        RT.row(1) = yb;
-                        RT.row(2) = zb;
-                        Eigen::Vector3d world_pos(map_pos(0), map_pos(1), map_rs2.z);
-                        world_pos.head(2) += xb.head(2) * 0.12;
-                        
-                        vector<int> Idxs;
-                        vector<float> SquaredDists;
-                        if (iter == 0)
-                        {
-                            pcl::PointXY pxy;
-                            pxy.x = world_pos(0);
-                            pxy.y = world_pos(1);
-                            if (kd_tree_plane.nearestKSearch(pxy, 1, Idxs, SquaredDists) > 0)
-                            {
-                                world_pos(2) = world_cloud->points[Idxs[0]].z;
-                            }
-                        }
-
-                        // get points and compute, update
-                        vector<Eigen::Vector3d> points;
-                        pcl::PointXYZ pt;
-                        pt.x = world_pos(0);
-                        pt.y = world_pos(1);
-                        pt.z = world_pos(2);
-                        if (kd_tree.radiusSearch(pt, box_r, Idxs, SquaredDists) > 0)
-                        {
-                            // is in ellipsoid
-                            for (size_t i=0; i<Idxs.size(); i++)
-                            {
-                                Eigen::Vector3d temp_pos(world_cloud->points[Idxs[i]].x, \
-                                                         world_cloud->points[Idxs[i]].y, \
-                                                         world_cloud->points[Idxs[i]].z );
-                                Eigen::Vector3d temp_subtract = temp_pos - world_pos;
-                                Eigen::Vector3d temp_inrob = RT*temp_subtract;
-                                if (ellipsoid_vecinv.cwiseProduct(temp_inrob).squaredNorm() < 1.0)
-                                {
-                                    points.emplace_back(temp_pos);
-                                }
-                            }
-                        }
-                        if (points.empty())
-                        {
-                            // std::cout<<"Points empty, but don't worry."<<std::endl;
-                            RXS2 rxs2_z;
-                            rxs2_z.z = world_pos(2);
-                            map_buffer[toAddress(x, y, yaw)] = rxs2_z;
-                            c_buffer[toAddress(x, y, yaw)] = map_buffer[toAddress(x, y, yaw)].getC();
-                        }
-                        else
-                        {
-                            map_buffer[toAddress(x, y, yaw)] = UnevenMap::filter(map_pos, points);
-                            c_buffer[toAddress(x, y, yaw)] = map_buffer[toAddress(x, y, yaw)].getC();
-                        }
-                        
-                        if (iter==0 && cnt++ % 100000 == 0)
-                        {
-                            cout<<"\033[1;33m map process "<<toAddress(x, y, yaw)*100.0 / (voxel_num[0]*voxel_num[1]*voxel_num[2])<<"%\033[0m"<<endl;
-                            cnt=1;
-                        }
-                    }
-        
-        // to txt
-        ofstream outf;
-        outf.open(map_file, ofstream::out);
-        outf.clear();
-        for (int x=0; x<voxel_num[0]; x++)
-            for (int y=0; y<voxel_num[1]; y++)
-                for (int yaw=0; yaw<voxel_num[2]; yaw++)
-                {
-                    RXS2 rs2 = map_buffer[toAddress(x, y, yaw)];
-                    outf << x << "," << y << "," << yaw << "," << rs2.z << "," << rs2.sigma << "," \
-                         << rs2.zb.x() << "," << rs2.zb.y() <<endl;
-                }
-        outf.close();
-
-        RCLCPP_INFO(node_->get_logger(), "map: SE(2) --> RXS2 done.");
-
-        return true;
-    }
-
-    void UnevenMap::visCallback()
-    {
-        if (!map_ready)
-            return;
-        
         origin_pub->publish(origin_cloud_msg);
-        filtered_pub->publish(filtered_cloud_msg);
         zb_pub->publish(zb_msg);
+        filtered_pub->publish(filtered_cloud_msg);
         so2_test_pub->publish(so2_test_msg);
+    }
+
+    void UnevenMap::globalMapCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
+    {
+        generateMapFromCloud(msg);
     }
 }

@@ -27,6 +27,7 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/crop_box.h>
 #include <pcl/kdtree/kdtree_flann.h>
+#include "lightning/srv/get_global_map.hpp"
 
 using namespace std;
 
@@ -76,6 +77,11 @@ namespace uneven_planner
             double          max_rho;
             double          gravity;
             double          mass;
+            double          z_min = -0.01;
+            double          z_max = 5.0;
+            int             init_knn = 7;
+            double          init_xy_max = 0.5;
+            double          global_voxel_res = 0.1;
             Eigen::Vector3d map_origin;
             Eigen::Vector3d map_size;
             Eigen::Vector3d min_boundary;
@@ -83,8 +89,6 @@ namespace uneven_planner
             Eigen::Vector3i min_idx;
             Eigen::Vector3i max_idx;
             Eigen::Vector3i voxel_num;
-            string          map_file;
-            string          pcd_file;
 
             //datas
             vector<RXS2>    map_buffer;
@@ -101,13 +105,20 @@ namespace uneven_planner
             rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_pub;
             rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr zb_pub;
             rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr so2_test_pub;
-            rclcpp::TimerBase::SharedPtr vis_timer;
+            rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr global_map_sub_;
+            rclcpp::TimerBase::SharedPtr vis_timer_;
+            rclcpp::TimerBase::SharedPtr map_timer_;
+            rclcpp::Client<lightning::srv::GetGlobalMap>::SharedPtr getmap_client_;
             rclcpp::Node::SharedPtr node_;  // 添加 node 成员变量用于日志
             sensor_msgs::msg::PointCloud2 origin_cloud_msg;
             sensor_msgs::msg::PointCloud2 filtered_cloud_msg;
             visualization_msgs::msg::MarkerArray so2_test_msg;
             visualization_msgs::msg::Marker zb_msg;    
-            bool                            map_ready = false;
+            bool map_ready = false;
+
+            void updateVisualizations();
+            void generateMapFromCloud(const sensor_msgs::msg::PointCloud2::SharedPtr cloud_msg);
+            void globalMapCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
 
         public:
             UnevenMap() {}
@@ -119,9 +130,6 @@ namespace uneven_planner
             static void normSO2(double& yaw);
 
             bool init(rclcpp::Node::SharedPtr node);
-            bool constructMapInput();
-            bool constructMap();
-            void visCallback();
 
             inline void getTerrain(const Eigen::Vector3d& pos, RXS2& value);
             inline void getTerrainPos(const Eigen::Vector3d& pos, Eigen::Matrix3d& R, Eigen::Vector3d& p);

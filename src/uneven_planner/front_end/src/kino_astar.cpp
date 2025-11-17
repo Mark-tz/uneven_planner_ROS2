@@ -19,6 +19,8 @@ namespace uneven_planner
         node->declare_parameter("kino_astar/max_steer", 1.0);
         node->declare_parameter("kino_astar/max_vel", 1.0);
         node->declare_parameter("kino_astar/in_test", false);
+        node->declare_parameter("kino_astar/model_type", 2);
+        node->declare_parameter("kino_astar/max_omega", 1.5);
 
         yaw_resolution = node->get_parameter("kino_astar/yaw_resolution").as_double();
         lambda_heu = node->get_parameter("kino_astar/lambda_heu").as_double();
@@ -34,6 +36,8 @@ namespace uneven_planner
         max_steer = node->get_parameter("kino_astar/max_steer").as_double();
         max_vel = node->get_parameter("kino_astar/max_vel").as_double();
         in_test = node->get_parameter("kino_astar/in_test").as_bool();
+        model_type = node->get_parameter("kino_astar/model_type").as_int();
+        max_omega = node->get_parameter("kino_astar/max_omega").as_double();
 
         whole_body_pub = node->create_publisher<visualization_msgs::msg::Marker>("/kino_astar/wholebody_path", 10);
         front_end_pub = node->create_publisher<nav_msgs::msg::Path>("/kino_astar/path", 10);
@@ -48,10 +52,13 @@ namespace uneven_planner
 
         yaw_resolution_inv = 1.0 / yaw_resolution;
 
-        shot_finder = std::make_shared<ompl::base::DubinsStateSpace>(wheel_base / tan(max_steer));
+        if (model_type == 1)
+            shot_finder.reset();
+        else
+            shot_finder = std::make_shared<ompl::base::DubinsStateSpace>(wheel_base / tan(max_steer));
 
         model.type = visualization_msgs::msg::Marker::LINE_LIST;
-        model.header.frame_id = "world";
+        model.header.frame_id = "map";
         model.id = 10;
         model.pose.orientation.w = 1.0;
         model.color.r = 1.0;
@@ -155,10 +162,21 @@ namespace uneven_planner
 
             for (double v = 0; v <= max_vel + 1e-3; v += 0.5*max_vel)
             {
-                for (double steer = -max_steer; steer <= max_steer + 1e-3; steer += 0.5*max_steer)
+                if (model_type == 1)
                 {
-                    ctrl_input << v, steer;
-                    inputs.push_back(ctrl_input);
+                    for (double w = -max_omega; w <= max_omega + 1e-3; w += 0.5*max_omega)
+                    {
+                        ctrl_input << v, w;
+                        inputs.push_back(ctrl_input);
+                    }
+                }
+                else
+                {
+                    for (double steer = -max_steer; steer <= max_steer + 1e-3; steer += 0.5*max_steer)
+                    {
+                        ctrl_input << v, steer;
+                        inputs.push_back(ctrl_input);
+                    }
                 }
             }
 
@@ -188,8 +206,12 @@ namespace uneven_planner
 
                 Eigen::Vector3d xt;
                 int occ = false;
-                double arc = input(0) * time_interval;
-                double temp_ct = collision_interval / arc * time_interval;
+                double arc = std::fabs(input(0)) * time_interval;
+                double temp_ct;
+                if (arc > 1e-6)
+                    temp_ct = collision_interval / arc * time_interval;
+                else
+                    temp_ct = collision_interval; // v≈0 时使用固定步长，允许原地旋转
                 for (double t = temp_ct; t <= time_interval+1e-3; t+=temp_ct)
                 {
                     stateTransit(cur_state, xt, input, t);
@@ -258,7 +280,7 @@ namespace uneven_planner
         nav_msgs::msg::Path path_msg;
         geometry_msgs::msg::PoseStamped path_point;
 
-        path_msg.header.frame_id = "world";
+        path_msg.header.frame_id = "map";
         path_msg.header.stamp = node_->get_clock()->now();
         model.points.clear();
         for (size_t i=0; i<front_end_path.size(); i++)
@@ -288,7 +310,7 @@ namespace uneven_planner
             sensor_msgs::msg::PointCloud2 expanded_msg;
             pcl::toROSMsg(expanded_points, expanded_msg);
             expanded_msg.header.stamp = node_->get_clock()->now();
-            expanded_msg.header.frame_id = "world";
+            expanded_msg.header.frame_id = "map";
             expanded_pub->publish(expanded_msg);
         }
     }
